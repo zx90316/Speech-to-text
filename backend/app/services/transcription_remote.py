@@ -61,6 +61,9 @@ def transcribe_with_remote_llm(
 
         with httpx.Client(base_url=settings.remote_server_url, timeout=httpx.Timeout(120.0)) as client:
             for offset, duration in _iter_offsets(start_s, end_s, chunk_length_s):
+                if TaskStore.is_canceled(task_id):
+                    TaskStore.mark_failed(task_id, error_message="任務已取消")
+                    return
                 chunk_wav = ffmpeg_extract_segment_to_wav(src_path, offset_seconds=offset, duration_seconds=duration)
                 try:
                     with open(chunk_wav, "rb") as f:
