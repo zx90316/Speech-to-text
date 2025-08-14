@@ -74,6 +74,7 @@ def transcribe_with_remote_llm(
                     text = str(data.get("text", ""))
 
                     TaskStore.append_segment(task_id, start=offset - start_s, end=offset - start_s + duration, text=text)
+                    TaskStore.update_partial_text(task_id, text, append=True)
 
                     processed = offset + duration - start_s
                     progress = (processed / (end_s - start_s)) * 100.0
