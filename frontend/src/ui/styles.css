@@ -1,0 +1,22 @@
+:root {
+  --bg: #0f172a;
+  --card: #111827;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --accent: #22d3ee;
+}
+body { background: var(--bg); color: var(--text); margin: 0; }
+.container { max-width: 900px; margin: 32px auto; padding: 16px; }
+.card { background: var(--card); border-radius: 14px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,.25); }
+.row { display: grid; gap: 12px; }
+.inline { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+label { font-size: 14px; color: var(--muted); display: block; margin-bottom: 6px; }
+input, select, button, textarea { border-radius: 10px; border: 1px solid #1f2937; background: #0b1220; color: var(--text); padding: 10px 12px; }
+button { cursor: pointer; background: linear-gradient(90deg,#06b6d4,#22d3ee); border: none; color: #011016; font-weight: 700; }
+progress { width: 100%; height: 10px; border-radius: 8px; }
+.tokens { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; background:#0b1220; border:1px solid #1f2937; padding:12px; border-radius:10px; min-height: 120px; white-space: pre-wrap; }
+.downloads a { color: var(--accent); text-decoration: none; }
+.alert { padding: 10px 12px; background: #7f1d1d; color: #fecaca; border: 1px solid #991b1b; border-radius: 10px; }
+.toolbar { display: flex; gap: 8px; align-items: center; }
+.ghost { background: transparent; border: 1px solid #1f2937; color: var(--text); }
+
