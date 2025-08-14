@@ -23,3 +23,25 @@ def generate_srt(transcription_data: list[dict]) -> str:
     return "\n".join(srt_content)
 
 
+def parse_hhmmss(time_str: str) -> float:
+    """將 HH:MM:SS 或 MM:SS 或 SS 解析為秒數(float)。
+    接受小數秒，例如 01:02:03.5。
+    """
+    if not time_str:
+        return 0.0
+    parts = str(time_str).split(":")
+    parts = [p.strip() for p in parts if p.strip() != ""]
+    if len(parts) == 1:
+        return float(parts[0])
+    if len(parts) == 2:
+        m = int(parts[0])
+        s = float(parts[1])
+        return m * 60 + s
+    if len(parts) == 3:
+        h = int(parts[0])
+        m = int(parts[1])
+        s = float(parts[2])
+        return h * 3600 + m * 60 + s
+    raise ValueError("時間格式錯誤，需為 SS、MM:SS 或 HH:MM:SS")
+
+

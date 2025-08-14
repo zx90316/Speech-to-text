@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import threading
 from typing import Dict, Any, Optional
+import os
+import tempfile
 
 
 _lock = threading.Lock()
@@ -17,6 +19,7 @@ class TaskStore:
                 "progress": 0.0,
                 "partial_text": "",
                 "segments": [],
+                "tokens": {"input": 0, "output": 0},
                 "meta": {
                     "model_choice": model_choice,
                     "start_time": start_time,
@@ -35,8 +38,9 @@ class TaskStore:
             task = _tasks.get(task_id)
             if not task:
                 return
-            task["segments"].append({"start": start, "end": end, "text": text})
-            task["partial_text"] += text
+            safe_text = "" if text is None else str(text)
+            task["segments"].append({"start": start, "end": end, "text": safe_text})
+            task["partial_text"] += safe_text
 
     @staticmethod
     def update_progress(task_id: str, progress: float) -> None:
@@ -64,4 +68,59 @@ class TaskStore:
             task["status"] = "failed"
             task["error"] = error_message
 
+    @staticmethod
+    def update_partial_text(task_id: str, text: str, *, append: bool = True) -> None:
+        with _lock:
+            task = _tasks.get(task_id)
+            if not task:
+                return
+            safe_text = "" if text is None else str(text)
+            if append:
+                task["partial_text"] += safe_text
+            else:
+                task["partial_text"] = safe_text
+
+    @staticmethod
+    def increment_tokens(task_id: str, input_tokens: int = 0, output_tokens: int = 0) -> None:
+        with _lock:
+            task = _tasks.get(task_id)
+            if not task:
+                return
+            tokens = task.setdefault("tokens", {"input": 0, "output": 0})
+            tokens["input"] = int(tokens.get("input", 0)) + int(max(0, input_tokens))
+            tokens["output"] = int(tokens.get("output", 0)) + int(max(0, output_tokens))
+
+    @staticmethod
+    def set_tokens(task_id: str, input_tokens: int | None = None, output_tokens: int | None = None) -> None:
+        with _lock:
+            task = _tasks.get(task_id)
+            if not task:
+                return
+            tokens = task.setdefault("tokens", {"input": 0, "output": 0})
+            if input_tokens is not None:
+                tokens["input"] = int(max(0, input_tokens))
+            if output_tokens is not None:
+                tokens["output"] = int(max(0, output_tokens))
+
+
+
+def save_temp_upload(contents: bytes, suffix: str | None = None) -> str:
+    """將上傳檔案 bytes 儲存為臨時檔，回傳檔案路徑。"""
+    if not suffix or not suffix.startswith("."):
+        suffix = ".bin"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(contents)
+        return tmp.name
+
+
+def read_file_bytes(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def delete_file_silent(path: str) -> None:
+    try:
+        os.remove(path)
+    except Exception:
+        pass
 
