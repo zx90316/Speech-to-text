@@ -6,13 +6,12 @@ from typing import Optional, Literal
 
 from fastapi import FastAPI, UploadFile, File, WebSocket, WebSocketDisconnect, Query, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import Response
 
 from .storage import TaskStore
 from .utils.formatting import generate_srt
 from .config import settings
-from .tasks import transcribe_remote_task, transcribe_sim_task, transcribe_vertex_task
-from .services.transcription_sim import simulate_transcription
+from .tasks import transcribe_remote_task,  transcribe_vertex_task
 from .services.transcription_remote import transcribe_with_remote_llm
 from .services.transcription_vertex import transcribe_with_vertex_ai
 
@@ -38,6 +37,15 @@ async def create_transcription_task(
     start_time: Optional[str] = Query(default=None, description="HH:MM:SS"),
     end_time: Optional[str] = Query(default=None, description="HH:MM:SS"),
     language_code: Optional[str] = Query(default="zh-TW"),
+    # 共同參數
+    chunk_length: Optional[float] = Query(default=30.0, description="分塊秒數"),
+    # Vertex 參數
+    prompt: Optional[str] = Query(default=None, description="提示詞"),
+    temperature: Optional[float] = Query(default=1.0),
+    top_p: Optional[float] = Query(default=0.95),
+    max_output_tokens: Optional[int] = Query(default=65535),
+    thinking_budget: Optional[int] = Query(default=0),
+    safety_off: Optional[bool] = Query(default=True),
 ):
     if file.content_type is None or not any(
         file.filename.lower().endswith(ext) for ext in (".wav", ".mp3", ".m4a", ".flac")
@@ -53,30 +61,47 @@ async def create_transcription_task(
         if model_choice == "remote_llm":
             transcribe_remote_task.delay(task_id, contents, start_time, end_time)
         elif model_choice == "vertex_ai":
-            transcribe_vertex_task.delay(task_id, contents, start_time, end_time, language_code)
-        else:
-            transcribe_sim_task.delay(task_id, contents)
+            transcribe_vertex_task.delay(
+                task_id,
+                contents,
+                start_time,
+                end_time,
+                language_code,
+                prompt,
+                temperature,
+                top_p,
+                max_output_tokens,
+                thinking_budget,
+                safety_off,
+                chunk_length,
+            )
+
     else:
         if model_choice == "remote_llm":
             background_tasks.add_task(
                 transcribe_with_remote_llm,
-                task_id,
-                contents,
-                start_time,
-                end_time,
+                task_id=task_id,
+                raw_bytes=contents,
+                start_time=start_time,
+                end_time=end_time,
+                chunk_length_s=float(chunk_length or 30.0),
             )
         elif model_choice == "vertex_ai":
             background_tasks.add_task(
                 transcribe_with_vertex_ai,
-                task_id,
-                contents,
-                start_time,
-                end_time,
-                30.0,
-                language_code or "zh-TW",
+                task_id=task_id,
+                raw_bytes=contents,
+                start_time=start_time,
+                end_time=end_time,
+                chunk_length_s=float(chunk_length or 30.0),
+                language_code=language_code or "zh-TW",
+                prompt=prompt,
+                temperature=float(temperature or 0),
+                top_p=float(top_p or 0.95),
+                max_output_tokens=int(max_output_tokens or 65535),
+                thinking_budget=int(thinking_budget or 0),
+                safety_off=bool(safety_off if safety_off is not None else True),
             )
-        else:
-            background_tasks.add_task(simulate_transcription, task_id, contents)
 
     return {"task_id": task_id}
 
@@ -98,6 +123,7 @@ async def websocket_status(websocket: WebSocket, task_id: str):
                     "partial_text": task.get("partial_text", ""),
                     "tokens": task.get("tokens", {"input": 0, "output": 0}),
                     "error": task.get("error", ""),
+                    "segments": task.get("segments", []),
                 }
             )
 
@@ -158,5 +184,16 @@ async def get_result(
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
+
+
+@app.post("/api/v1/cancel/{task_id}")
+async def cancel_task(task_id: str):
+    task = TaskStore.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="找不到此任務")
+    if task.get("status") in ("completed", "failed", "canceled"):
+        return {"status": task.get("status")}
+    TaskStore.mark_canceled(task_id)
+    return {"status": "canceled"}
 
 

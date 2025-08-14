@@ -20,6 +20,7 @@ class TaskStore:
                 "partial_text": "",
                 "segments": [],
                 "tokens": {"input": 0, "output": 0},
+                "canceled": False,
                 "meta": {
                     "model_choice": model_choice,
                     "start_time": start_time,
@@ -40,7 +41,6 @@ class TaskStore:
                 return
             safe_text = "" if text is None else str(text)
             task["segments"].append({"start": start, "end": end, "text": safe_text})
-            task["partial_text"] += safe_text
 
     @staticmethod
     def update_progress(task_id: str, progress: float) -> None:
@@ -77,8 +77,6 @@ class TaskStore:
             safe_text = "" if text is None else str(text)
             if append:
                 task["partial_text"] += safe_text
-            else:
-                task["partial_text"] = safe_text
 
     @staticmethod
     def increment_tokens(task_id: str, input_tokens: int = 0, output_tokens: int = 0) -> None:
@@ -101,6 +99,23 @@ class TaskStore:
                 tokens["input"] = int(max(0, input_tokens))
             if output_tokens is not None:
                 tokens["output"] = int(max(0, output_tokens))
+
+    @staticmethod
+    def mark_canceled(task_id: str) -> None:
+        with _lock:
+            task = _tasks.get(task_id)
+            if not task:
+                return
+            task["canceled"] = True
+            task["status"] = "canceled"
+
+    @staticmethod
+    def is_canceled(task_id: str) -> bool:
+        with _lock:
+            task = _tasks.get(task_id)
+            if not task:
+                return False
+            return bool(task.get("canceled", False))
 
 
 
