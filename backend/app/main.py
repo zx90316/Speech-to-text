@@ -18,15 +18,14 @@ from .services.transcription_vertex import transcribe_with_vertex_ai
 
 app = FastAPI(title="Speech-to-Text Backend", version="0.1.0")
 
-# CORS
-if settings.cors_origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# CORS - 允許所有來源
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 
 @app.post("/api/v1/transcribe")

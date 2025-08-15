@@ -6,3 +6,6 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 *.log
+models/
+offline-packages/
+offline-packages-backend/

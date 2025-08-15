@@ -38,7 +38,7 @@ class Settings:
 
 
 settings = Settings(
-    cors_origins=_parse_csv(os.getenv("CORS_ORIGINS", "")),
+    cors_origins=_parse_csv(os.getenv("CORS_ORIGINS", "http://192.168.80.24:5173,http://localhost:5173,http://127.0.0.1:5173")),
 )
 
 

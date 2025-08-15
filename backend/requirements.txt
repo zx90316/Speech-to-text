@@ -8,3 +8,4 @@ redis==5.0.7
 celery==5.4.0
 google-genai
 
+
