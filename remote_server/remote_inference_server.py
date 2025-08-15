@@ -9,6 +9,12 @@ import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 import tempfile
 import os
+from opencc import OpenCC
+
+# 初始化轉換器，'s2twp' 表示從簡體（s）轉換到台灣繁體（tw），並包含詞彙轉換（p）
+# s2t: 簡轉繁
+# s2tw: 簡轉臺
+cc = OpenCC('s2twp')  
 
 torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
@@ -28,11 +34,11 @@ app = FastAPI(title="Remote Whisper Inference Server", version="0.1.0")
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-model_id = os.getenv("MODEL_NAME", "openai/whisper-large-v3")
+model_id = os.getenv("MODEL_NAME", "BELLE-2/Belle-whisper-large-v3-zh-punct")
 
 model = AutoModelForSpeechSeq2Seq.from_pretrained(
-    model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True,
-    local_files_only=True
+    model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True
+    ,local_files_only=True
 )
 model.to(device)
 
@@ -53,7 +59,6 @@ pipe = pipeline(
 
 class TranscriptionResponse(BaseModel):
     text: str
-    language: str
 
 
 @app.post("/transcribe/", response_model=TranscriptionResponse)
@@ -64,13 +69,19 @@ async def transcribe_audio(file: UploadFile = File(...)):
             tmp.write(content)
             tmp_path = tmp.name
 
+        pipe.model.config.forced_decoder_ids = (
+            pipe.tokenizer.get_decoder_prompt_ids(
+                language="chinese", 
+                task="transcribe"
+            )
+        )
+
         outputs = pipe(tmp_path)
 
         os.remove(tmp_path)
-
-        return {"text": outputs["text"], "language": outputs.get("language", "中文")}
+        return {"text": cc.convert(outputs["text"])}
     except Exception as e:
-        return {"text": f"Error: {str(e)}", "language": "error"}
+        return {"text": f"Error: {str(e)}"}
 
 
 @app.get("/healthz")
