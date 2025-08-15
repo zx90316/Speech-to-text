@@ -69,7 +69,7 @@ def main() -> int:
     parser.add_argument("--with-remote", action="store_true", help="同時啟動遠端 Whisper 推論伺服器")
     parser.add_argument("--backend-port", default="8000", help="後端埠，預設 8000")
     parser.add_argument("--remote-port", default="8001", help="遠端伺服器埠，預設 8001")
-    parser.add_argument("--frontend-port", default="5173", help="前端埠，預設 5173（Vite 自行決定）")
+    parser.add_argument("--frontend-port", default="8002", help="前端埠，預設 8002（Vite 自行決定）")
     args = parser.parse_args()
 
     procs: List[subprocess.Popen] = []

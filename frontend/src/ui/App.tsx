@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 
-const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
+const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://192.168.80.24:8000'
 
 type TaskStatus = 'idle' | 'uploading' | 'processing' | 'completed' | 'failed'
 type Tokens = { input: number; output: number }

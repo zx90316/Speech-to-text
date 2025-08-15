@@ -1,9 +1,20 @@
+# --extra-index-url 告知 pip 除了預設的 PyPI 外，也到這個網址尋找套件
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+# PyTorch 相關套件
+torch
+torchvision
+torchaudio
+
+# Web 框架與伺服器
 fastapi==0.111.0
 uvicorn[standard]==0.30.0
-torch>=2.2.0
+
+# Hugging Face 生態系
 transformers>=4.41.0
 accelerate>=0.31.0
 optimum>=1.20.0
+
+# 其他依賴
 numpy>=1.26.0
 python-dotenv==1.0.1
-
