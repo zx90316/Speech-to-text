@@ -71,10 +71,32 @@ def transcribe_with_remote_llm(
                         resp = client.post("/transcribe/", files=files)
                     resp.raise_for_status()
                     data = resp.json()
-                    text = str(data.get("text", ""))
+                    """
+                    data =
+                    {
+                        "chunks": [
+                            {
+                            "text": "中文範例說明。",
+                            "timestamp": [
+                                0 | None, 
+                                2.56 | None
+                            ]
+                            }
+                        ]
+                    }
+                    """
+                    chunks = data.get("chunks", [])
+                    concatenated_text = ""
+                    for chunk in chunks:
+                        text = str(chunk.get("text", ""))
+                        timestamp = chunk.get("timestamp", (None, None))
+                        start_chunk = offset - start_s + (timestamp[0] if timestamp and timestamp[0] is not None else 0)
+                        end_chunk = offset - start_s + (timestamp[1] if timestamp and timestamp[1] is not None else 30)
 
-                    TaskStore.append_segment(task_id, start=offset - start_s, end=offset - start_s + duration, text=text)
-                    TaskStore.update_partial_text(task_id, text, append=True)
+                        TaskStore.append_segment(task_id, start=start_chunk, end=end_chunk, text=text)
+                        concatenated_text += text + " "
+
+                    TaskStore.update_partial_text(task_id, concatenated_text.strip(), append=True)
 
                     processed = offset + duration - start_s
                     progress = (processed / (end_s - start_s)) * 100.0
