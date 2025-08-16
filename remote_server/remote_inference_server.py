@@ -38,7 +38,7 @@ model_id = os.getenv("MODEL_NAME", "BELLE-2/Belle-whisper-large-v3-zh-punct")
 
 model = AutoModelForSpeechSeq2Seq.from_pretrained(
     model_id, torch_dtype=torch_dtype, low_cpu_mem_usage=True, use_safetensors=True
-    ,local_files_only=True
+    #,local_files_only=True
 )
 model.to(device)
 
@@ -57,8 +57,12 @@ pipe = pipeline(
 )
 
 
-class TranscriptionResponse(BaseModel):
+class Chunk(BaseModel):
     text: str
+    timestamp: tuple[float | None, float | None]
+
+class TranscriptionResponse(BaseModel):
+    chunks: list[Chunk]
 
 
 @app.post("/transcribe/", response_model=TranscriptionResponse)
@@ -76,12 +80,25 @@ async def transcribe_audio(file: UploadFile = File(...)):
             )
         )
 
-        outputs = pipe(tmp_path)
+        outputs = pipe(tmp_path,return_timestamps=True)
+        #output = [{'timestamp': (...), 'text': '中文范例说明。'}]
+        chunks_output = []
+        for chunk in outputs.get("chunks", []):
+            timestamp_start = None
+            timestamp_end = None
+            if chunk.get('timestamp') is not None:
+                timestamp_start = chunk['timestamp'][0]
+                timestamp_end = chunk['timestamp'][1]
 
+            chunks_output.append({
+                "text": cc.convert(chunk.get('text', '')),
+                "timestamp": (timestamp_start, timestamp_end)
+            })
+        
         os.remove(tmp_path)
-        return {"text": cc.convert(outputs["text"])}
+        return {"chunks": chunks_output}
     except Exception as e:
-        return {"text": f"Error: {str(e)}"}
+        return {"chunks": [{"text": f"Error: {str(e)}", "timestamp": (0, 0)}]}
 
 
 @app.get("/healthz")

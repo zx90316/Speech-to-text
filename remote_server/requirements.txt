@@ -18,3 +18,4 @@ optimum>=1.20.0
 # 其他依賴
 numpy>=1.26.0
 python-dotenv==1.0.1
+opencc-python-reimplemented
