@@ -38,6 +38,9 @@ async def create_transcription_task(
     language_code: Optional[str] = Query(default="zh-TW"),
     # 共同參數
     chunk_length: Optional[float] = Query(default=30.0, description="分塊秒數"),
+    enable_diarization: Optional[bool] = Query(default=False, description="啟用語者分離"),
+    min_speakers: Optional[int] = Query(default=None, description="最小語者數量"),
+    max_speakers: Optional[int] = Query(default=None, description="最大語者數量"),
     # Vertex 參數
     prompt: Optional[str] = Query(default=None, description="提示詞"),
     temperature: Optional[float] = Query(default=1.0),
@@ -58,7 +61,16 @@ async def create_transcription_task(
     contents = await file.read()
     if settings.use_celery:
         if model_choice == "remote_llm":
-            transcribe_remote_task.delay(task_id, contents, start_time, end_time)
+            transcribe_remote_task.delay(
+                task_id, 
+                contents, 
+                start_time, 
+                end_time,
+                chunk_length,
+                enable_diarization,
+                min_speakers,
+                max_speakers,
+            )
         elif model_choice == "vertex_ai":
             transcribe_vertex_task.delay(
                 task_id,
@@ -84,6 +96,9 @@ async def create_transcription_task(
                 start_time=start_time,
                 end_time=end_time,
                 chunk_length_s=float(chunk_length or 30.0),
+                enable_diarization=bool(enable_diarization or False),
+                min_speakers=min_speakers,
+                max_speakers=max_speakers,
             )
         elif model_choice == "vertex_ai":
             background_tasks.add_task(
@@ -163,7 +178,12 @@ async def get_result(
         lines = []
         for s in segments:
             start, end, text = s.get("start", 0.0), s.get("end", 0.0), s.get("text", "")
-            lines.append(f"[{start:.2f}-{end:.2f}] {text}")
+            speaker = s.get("speaker")
+            time_range = f"[{start:.2f}-{end:.2f}]"
+            if speaker:
+                lines.append(f"{time_range} [{speaker}] {text}")
+            else:
+                lines.append(f"{time_range} {text}")
         return Response(
             "\n".join(lines),
             media_type="text/plain; charset=utf-8",

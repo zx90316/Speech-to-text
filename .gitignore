@@ -9,3 +9,4 @@ __pycache__/
 models/
 offline-packages/
 offline-packages-backend/
+.env

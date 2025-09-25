@@ -14,9 +14,14 @@ def generate_srt(transcription_data: list[dict]) -> str:
         start_time = to_srt_time_format(float(segment.get("start", 0.0)))
         end_time = to_srt_time_format(float(segment.get("end", 0.0)))
         text = str(segment.get("text", ""))
+        speaker = segment.get("speaker")
 
         srt_content.append(str(i))
         srt_content.append(f"{start_time} --> {end_time}")
+        
+        # 如果有語者資訊，在文字前加上語者標籤
+        if speaker:
+            text = f"[{speaker}] {text}"
         srt_content.append(text)
         srt_content.append("")
 

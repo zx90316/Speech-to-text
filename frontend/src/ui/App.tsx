@@ -18,6 +18,9 @@ Key requirements:
   const [topP, setTopP] = useState(0.95)
   const [maxTokens, setMaxTokens] = useState(65535)
   const [chunkLength, setChunkLength] = useState(30)
+  const [enableDiarization, setEnableDiarization] = useState(false)
+  const [minSpeakers, setMinSpeakers] = useState<number | null>(null)
+  const [maxSpeakers, setMaxSpeakers] = useState<number | null>(null)
   const [taskStatus, setTaskStatus] = useState<TaskStatus>('idle')
   const [progress, setProgress] = useState(0)
   const [partialText, setPartialText] = useState('')
@@ -25,7 +28,7 @@ Key requirements:
   const [tokens, setTokens] = useState<Tokens>({ input: 0, output: 0 })
   const [errorMsg, setErrorMsg] = useState<string>('')
   const [canceling, setCanceling] = useState(false)
-  const [segments, setSegments] = useState<Array<{ start: number; end: number; text: string }>>([])
+  const [segments, setSegments] = useState<Array<{ start: number; end: number; text: string; speaker?: string }>>([])
 
   const wsRef = useRef<WebSocket | null>(null)
   const liveTokensRef = useRef<HTMLDivElement | null>(null)
@@ -89,6 +92,16 @@ Key requirements:
     if (startTime) q.set('start_time', startTime)
     if (endTime) q.set('end_time', endTime)
     if (chunkLength) q.set('chunk_length', String(chunkLength))
+    
+    // 語者分離參數（僅對 remote_llm 有效）
+    if (model === 'remote_llm') {
+      q.set('enable_diarization', String(enableDiarization))
+      if (enableDiarization) {
+        if (minSpeakers != null) q.set('min_speakers', String(minSpeakers))
+        if (maxSpeakers != null) q.set('max_speakers', String(maxSpeakers))
+      }
+    }
+    
     if (model === 'vertex_ai') {
       if (prompt) q.set('prompt', prompt)
       if (temperature != null) q.set('temperature', String(temperature))
@@ -180,6 +193,47 @@ Key requirements:
                 </div>
               </div>
             )}
+            {model === 'remote_llm' && (
+              <div className="row">
+                <div>
+                  <label>
+                    <input 
+                      type="checkbox" 
+                      checked={enableDiarization} 
+                      onChange={(e) => setEnableDiarization(e.target.checked)}
+                      style={{ marginRight: 8 }}
+                    />
+                    啟用語者分離（Speaker Diarization）
+                  </label>
+                </div>
+                {enableDiarization && (
+                  <div className="inline">
+                    <div>
+                      <label>最小語者數量（可空）</label>
+                      <input 
+                        type="number" 
+                        min={1} 
+                        max={10} 
+                        value={minSpeakers || ''} 
+                        onChange={(e) => setMinSpeakers(e.target.value ? Number(e.target.value) : null)} 
+                        placeholder="自動偵測"
+                      />
+                    </div>
+                    <div>
+                      <label>最大語者數量（可空）</label>
+                      <input 
+                        type="number" 
+                        min={1} 
+                        max={10} 
+                        value={maxSpeakers || ''} 
+                        onChange={(e) => setMaxSpeakers(e.target.value ? Number(e.target.value) : null)}
+                        placeholder="自動偵測"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <div>
               <button onClick={handleStart} disabled={!file || taskStatus === 'uploading' || taskStatus === 'processing'}>
                 {taskStatus === 'uploading' ? '上傳中...' : taskStatus === 'processing' ? '處理中...' : '開始轉錄'}
@@ -231,6 +285,7 @@ Key requirements:
                     <div key={i} style={{ marginBottom: 8 }}>
                       <div style={{ color: '#9ca3af', fontSize: 12 }}>
                         [{s.start.toFixed(2)} - {s.end.toFixed(2)}]
+                        {s.speaker && <span style={{ marginLeft: 8, color: '#f59e0b' }}>[{s.speaker}]</span>}
                       </div>
                       <div>{s.text}</div>
                     </div>

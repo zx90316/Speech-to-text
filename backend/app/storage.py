@@ -34,13 +34,16 @@ class TaskStore:
             return _tasks.get(task_id)
 
     @staticmethod
-    def append_segment(task_id: str, start: float, end: float, text: str) -> None:
+    def append_segment(task_id: str, start: float, end: float, text: str, speaker: Optional[str] = None) -> None:
         with _lock:
             task = _tasks.get(task_id)
             if not task:
                 return
             safe_text = "" if text is None else str(text)
-            task["segments"].append({"start": start, "end": end, "text": safe_text})
+            segment = {"start": start, "end": end, "text": safe_text}
+            if speaker is not None:
+                segment["speaker"] = str(speaker)
+            task["segments"].append(segment)
 
     @staticmethod
     def update_progress(task_id: str, progress: float) -> None:

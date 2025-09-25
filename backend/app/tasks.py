@@ -9,7 +9,16 @@ from .services.transcription_vertex import transcribe_with_vertex_ai
 
 
 @celery_app.task(name="transcribe_remote")
-def transcribe_remote_task(task_id: str, raw_bytes: bytes, start_time: str | None, end_time: str | None) -> None:
+def transcribe_remote_task(
+    task_id: str, 
+    raw_bytes: bytes, 
+    start_time: str | None, 
+    end_time: str | None,
+    chunk_length: float | None = None,
+    enable_diarization: bool = False,
+    min_speakers: int | None = None,
+    max_speakers: int | None = None,
+) -> None:
     # 某些 broker/backend 對大型 bytes 支援不佳，可以先落地檔案再讀回
     path = save_temp_upload(raw_bytes, suffix=".bin")
     try:
@@ -19,6 +28,10 @@ def transcribe_remote_task(task_id: str, raw_bytes: bytes, start_time: str | Non
             raw_bytes=data,
             start_time=start_time,
             end_time=end_time,
+            chunk_length_s=float(chunk_length or 30.0),
+            enable_diarization=bool(enable_diarization),
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
         )
     finally:
         delete_file_silent(path)

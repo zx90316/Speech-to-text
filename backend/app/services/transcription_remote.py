@@ -41,6 +41,9 @@ def transcribe_with_remote_llm(
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
     chunk_length_s: float = 30.0,
+    enable_diarization: bool = False,
+    min_speakers: Optional[int] = None,
+    max_speakers: Optional[int] = None,
 ) -> None:
     try:
         ensure_ffmpeg_available()
@@ -68,7 +71,14 @@ def transcribe_with_remote_llm(
                 try:
                     with open(chunk_wav, "rb") as f:
                         files = {"file": ("chunk.wav", f, "audio/wav")}
-                        resp = client.post("/transcribe/", files=files)
+                        params = {
+                            "enable_diarization": enable_diarization,
+                        }
+                        if min_speakers is not None:
+                            params["min_speakers"] = min_speakers
+                        if max_speakers is not None:
+                            params["max_speakers"] = max_speakers
+                        resp = client.post("/transcribe/", files=files, params=params)
                     resp.raise_for_status()
                     data = resp.json()
                     """
@@ -90,10 +100,11 @@ def transcribe_with_remote_llm(
                     for chunk in chunks:
                         text = str(chunk.get("text", ""))
                         timestamp = chunk.get("timestamp", (None, None))
+                        speaker = chunk.get("speaker")  # 語者資訊
                         start_chunk = offset - start_s + (timestamp[0] if timestamp and timestamp[0] is not None else 0)
                         end_chunk = offset - start_s + (timestamp[1] if timestamp and timestamp[1] is not None else 30)
 
-                        TaskStore.append_segment(task_id, start=start_chunk, end=end_chunk, text=text)
+                        TaskStore.append_segment(task_id, start=start_chunk, end=end_chunk, text=text, speaker=speaker)
                         concatenated_text += text + " "
 
                     TaskStore.update_partial_text(task_id, concatenated_text.strip(), append=True)
