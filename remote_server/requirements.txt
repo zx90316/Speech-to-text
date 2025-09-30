@@ -1,10 +1,11 @@
 # --extra-index-url 告知 pip 除了預設的 PyPI 外，也到這個網址尋找套件
---extra-index-url https://download.pytorch.org/whl/cu129
+--extra-index-url https://download.pytorch.org/whl/cu126
 
 # PyTorch 相關套件
 torch
 torchvision
 torchaudio
+torchcodec
 
 # Web 框架與伺服器
 fastapi
@@ -18,13 +19,9 @@ huggingface_hub
 
 # 語者分離套件
 pyannote.audio
-speechbrain
-
-# 音訊處理
-librosa
-soundfile
 
 # 其他依賴
-numpy>=1.26.0
+numpy
 python-dotenv
-opencc-python-reimplemented
+
+faster-whisper
