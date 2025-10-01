@@ -13,3 +13,5 @@ offline-packages-backend/
 audios_wav/
 audios_txt/
 ffmpeg*/
+result/
+uploads/
