@@ -9,7 +9,8 @@ from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline
 from dotenv import load_dotenv
 
-file = "語音 250814_133051.m4a"
+file = "範例.mp3"
+enable_diarization = True  # 設定是否啟用語者分離功能
 
 # 新增 FFmpeg 可執行檔的路徑到 PATH
 # 注意要把bin底下的DLL複製到.venv/Lib/site-packages/torchcodec底下
@@ -151,16 +152,22 @@ if __name__ == "__main__":
 
     progress.update("初始化", 5.0, message=f"Whisper Large V3 模型載入完成 (設備: {device})")
 
-    progress.update("初始化", 10.0, message="載入語者分離模型")
-    diarization_model_id = "pyannote/speaker-diarization-community-1"
-    hf_token = os.getenv("HUGGINGFACE_TOKEN")
-    speaker_diarization = Pipeline.from_pretrained(diarization_model_id, token=hf_token)
-    speaker_diarization.to(torch.device(device))
-    progress.update("初始化", 15.0, message="語者分離模型載入完成")
+    # 根據設定決定是否載入語者分離模型
+    if enable_diarization:
+        progress.update("初始化", 10.0, message="載入語者分離模型")
+        diarization_model_id = "pyannote/speaker-diarization-community-1"
+        hf_token = os.getenv("HUGGINGFACE_TOKEN")
+        speaker_diarization = Pipeline.from_pretrained(diarization_model_id, token=hf_token)
+        speaker_diarization.to(torch.device(device))
+        progress.update("初始化", 15.0, message="語者分離模型載入完成")
+    else:
+        progress.update("初始化", 15.0, message="跳過語者分離模型載入（已停用）")
 
     start_time = time.time()
  
-    dialogue_path = "./audios_txt/" + file.split(".")[0] + ".txt"
+    base_filename = file.split(".")[0]
+    dialogue_path = "./audios_txt/" + base_filename + ".txt"
+    asr_raw_path = "./audios_txt/" + base_filename + "_asr_raw.txt"
     audio = "./audios_wav/" + file
 
     # 轉換音訊檔案為標準 WAV 格式
@@ -180,42 +187,69 @@ if __name__ == "__main__":
         log_progress=True,
     )
     timestamp_texts=[]
+    asr_lines = []  # 保存原始 ASR 轉錄歷程
     for segment in segments:
         timestamp_texts.append((Segment(segment.start, segment.end), cc.convert(segment.text)))
-        print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, cc.convert(segment.text)))
+        asr_line = "[%.2fs -> %.2fs] %s" % (segment.start, segment.end, cc.convert(segment.text))
+        asr_lines.append(asr_line)
 
     asr_time = time.time()
     progress.update("語音轉文字", 60.0, message=f"ASR 轉錄完成，耗時 {asr_time - start_time:.2f} 秒")
 
-    progress.update("語者分離", 65.0, message="開始執行語者分離")
+    # 保存原始 ASR 轉錄歷程到單獨文件
+    with open(asr_raw_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(asr_lines))
+    progress.update("結果輸出", 65.0, message=f"原始 ASR 轉錄已保存至 {asr_raw_path}")
 
-    diarization_output = speaker_diarization(converted_audio_path)
-    diarization_result = diarization_output.speaker_diarization
+    # 根據設定決定是否執行語者分離
+    if enable_diarization:
+        progress.update("語者分離", 70.0, message="開始執行語者分離")
 
-    diarization_time = time.time()
-    progress.update("語者分離", 80.0, message=f"語者分離完成，耗時 {diarization_time - asr_time:.2f} 秒")
+        diarization_output = speaker_diarization(converted_audio_path)
+        diarization_result = diarization_output.speaker_diarization
 
-    progress.update("文字整合", 85.0, message="整合轉錄文字與語者資訊")
-    final_result = diarize_text(timestamp_texts, diarization_result)
+        diarization_time = time.time()
+        progress.update("語者分離", 80.0, message=f"語者分離完成，耗時 {diarization_time - asr_time:.2f} 秒")
+
+        progress.update("文字整合", 85.0, message="整合轉錄文字與語者資訊")
+        final_result = diarize_text(timestamp_texts, diarization_result)
+        progress.update("文字整合", 90.0, message="文字與語者整合完成")
+    else:
+        progress.update("語者分離", 85.0, message="跳過語者分離（已停用）")
+        final_result = None
+    
     os.remove(converted_audio_path)
-    progress.update("文字整合", 90.0, message="文字與語者整合完成")
-
     progress.update("結果輸出", 95.0, message="生成最終結果")
 
     print("\n" + "=" * 60)
     print("轉錄結果:")
     print("=" * 60)
 
-    dialogue = []
-    for segment, spk, sent in final_result:
-        content = {'speaker': spk, 'start': segment.start, 'end': segment.end, 'text': sent}
-        dialogue.append(content)
-        # 添加到進度追蹤器的部分結果（為 FastAPI 準備）
-        progress.add_partial_result(content)
-        print(f"[{segment.start:6.2f}s -> {segment.end:6.2f}s] {spk}: {sent}")
+    if enable_diarization and final_result:
+        # 有語者分離的結果
+        dialogue = []
+        dialogue_lines = []
+        for segment, spk, sent in final_result:
+            content = {'speaker': spk, 'start': segment.start, 'end': segment.end, 'text': sent}
+            dialogue.append(content)
+            # 添加到進度追蹤器的部分結果（為 FastAPI 準備）
+            progress.add_partial_result(content)
+            formatted_line = f"[{segment.start:6.2f}s -> {segment.end:6.2f}s] {spk}: {sent}"
+            dialogue_lines.append(formatted_line)
+            print(formatted_line)
 
-    with open(dialogue_path, 'w', encoding='utf-8') as f:
-         f.write(str(dialogue))
+        # 寫入語者分離最終結果
+        with open(dialogue_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(dialogue_lines))
+    else:
+        # 沒有語者分離，直接輸出原始 ASR 結果
+        for line in asr_lines:
+            print(line)
+        
+        # 寫入原始 ASR 結果作為最終結果
+        with open(dialogue_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(asr_lines))
+    
     end_time = time.time()
 
     progress.complete()
@@ -224,6 +258,8 @@ if __name__ == "__main__":
     print("處理完成統計:")
     print("=" * 60)
     print(f"音訊檔案: {file}")
+    print(f"語者分離: {'已啟用' if enable_diarization else '已停用'}")
     print(f"總處理時間: {end_time - start_time:.2f} 秒")
-    print(f"輸出檔案: {dialogue_path}")
+    print(f"原始 ASR 轉錄: {asr_raw_path}")
+    print(f"最終結果檔案: {dialogue_path}")
     print("=" * 60)
