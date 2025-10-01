@@ -1,0 +1,232 @@
+/**
+ * 任務進度組件
+ */
+import { useEffect, useState, useRef } from 'react';
+import { Loader2, CheckCircle2, XCircle, Download, X, Clock, Users } from 'lucide-react';
+import { api } from '../api';
+import type { Task, ProgressEvent } from '../types';
+
+interface TaskProgressProps {
+  taskId: string;
+  onClose: () => void;
+  onComplete: () => void;
+}
+
+export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps) {
+  const [task, setTask] = useState<Task | null>(null);
+  const [progressEvent, setProgressEvent] = useState<ProgressEvent | null>(null);
+  const [canceling, setCanceling] = useState(false);
+  const hasCompletedRef = useRef(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    hasCompletedRef.current = false;
+    
+    // 首次載入任務資訊
+    api.getTask(taskId).then(data => {
+      if (isMounted) setTask(data);
+    }).catch(console.error);
+
+    // 建立 SSE 連接
+    const eventSource = api.createProgressStream(taskId);
+
+    eventSource.onmessage = (event) => {
+      if (!isMounted) return;
+      
+      const data: ProgressEvent = JSON.parse(event.data);
+      setProgressEvent(data);
+
+      // 如果任務完成，關閉連接並只調用一次 onComplete
+      if (data.status === 'completed' && !hasCompletedRef.current) {
+        hasCompletedRef.current = true;
+        eventSource.close();
+        // 延遲調用以確保狀態更新完成
+        setTimeout(() => {
+          if (isMounted) onComplete();
+        }, 500);
+      } else if (data.status === 'failed' || data.status === 'canceled') {
+        eventSource.close();
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('SSE 錯誤:', error);
+      eventSource.close();
+    };
+
+    return () => {
+      isMounted = false;
+      eventSource.close();
+    };
+  }, [taskId, onComplete]);
+
+  const handleCancel = async () => {
+    if (confirm('確定要取消此任務嗎？')) {
+      setCanceling(true);
+      try {
+        await api.cancelTask(taskId);
+      } catch (error) {
+        console.error('取消任務失敗:', error);
+      } finally {
+        setCanceling(false);
+      }
+    }
+  };
+
+  const handleDownload = (fileType: 'transcript' | 'raw') => {
+    const url = api.downloadResult(taskId, fileType);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${task?.filename}_${fileType}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  if (!task) {
+    return (
+      <div className="task-progress loading">
+        <Loader2 className="spin" size={32} />
+        <p>載入中...</p>
+      </div>
+    );
+  }
+
+  const currentProgress = progressEvent?.progress ?? task.progress;
+  const currentStage = progressEvent?.current_stage ?? task.current_stage ?? task.status;
+  const queuePosition = progressEvent?.queue_position ?? task.queue_position;
+
+  return (
+    <div className="task-progress">
+      <div className="task-header">
+        <div className="task-info">
+          <h3>{task.filename}</h3>
+          <div className="task-meta">
+            {task.enable_diarization && (
+              <span className="badge">
+                <Users size={14} />
+                語者分離
+              </span>
+            )}
+            <span className="task-id">ID: {taskId.slice(0, 8)}...</span>
+          </div>
+        </div>
+        <button className="close-btn" onClick={onClose} title="關閉">
+          <X size={20} />
+        </button>
+      </div>
+
+      <div className="status-section">
+        {task.status === 'pending' && (
+          <div className="status pending">
+            <Clock className="status-icon" size={24} />
+            <div>
+              <p className="status-text">等待處理中</p>
+              <p className="status-detail">前方還有 {queuePosition} 個任務</p>
+            </div>
+          </div>
+        )}
+
+        {task.status === 'processing' && (
+          <div className="status processing">
+            <Loader2 className="status-icon spin" size={24} />
+            <div>
+              <p className="status-text">處理中</p>
+              <p className="status-detail">{currentStage}</p>
+            </div>
+          </div>
+        )}
+
+        {task.status === 'completed' && (
+          <div className="status completed">
+            <CheckCircle2 className="status-icon" size={24} />
+            <div>
+              <p className="status-text">轉錄完成！</p>
+              <p className="status-detail">已完成處理</p>
+            </div>
+          </div>
+        )}
+
+        {task.status === 'failed' && (
+          <div className="status failed">
+            <XCircle className="status-icon" size={24} />
+            <div>
+              <p className="status-text">處理失敗</p>
+              <p className="status-detail">{task.error_message || '未知錯誤'}</p>
+            </div>
+          </div>
+        )}
+
+        {task.status === 'canceled' && (
+          <div className="status canceled">
+            <XCircle className="status-icon" size={24} />
+            <div>
+              <p className="status-text">已取消</p>
+              <p className="status-detail">任務已被取消</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="progress-section">
+        <div className="progress-bar-container">
+          <div 
+            className="progress-bar" 
+            style={{ width: `${currentProgress}%` }}
+          />
+        </div>
+        <div className="progress-text">{currentProgress.toFixed(1)}%</div>
+      </div>
+
+      {progressEvent?.partial_result && progressEvent.partial_result.length > 0 && (
+        <div className="partial-result">
+          <h4>部分轉錄結果：</h4>
+          <div className="result-preview">
+            {progressEvent.partial_result.slice(-5).map((segment, idx) => (
+              <div key={idx} className="segment">
+                <span className="timestamp">
+                  [{segment.start.toFixed(1)}s - {segment.end.toFixed(1)}s]
+                </span>
+                {segment.speaker && <span className="speaker">{segment.speaker}:</span>}
+                <span className="text">{segment.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="actions">
+        {(task.status === 'pending' || task.status === 'processing') && (
+          <button 
+            className="cancel-btn" 
+            onClick={handleCancel}
+            disabled={canceling}
+          >
+            {canceling ? <Loader2 className="spin" size={16} /> : <X size={16} />}
+            取消任務
+          </button>
+        )}
+
+        {task.status === 'completed' && task.has_result && (
+          <>
+            <button 
+              className="download-btn primary" 
+              onClick={() => handleDownload('transcript')}
+            >
+              <Download size={16} />
+              下載結果
+            </button>
+            <button 
+              className="download-btn secondary" 
+              onClick={() => handleDownload('raw')}
+            >
+              <Download size={16} />
+              下載原始 ASR
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+

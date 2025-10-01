@@ -77,13 +77,16 @@ async def process_queue():
         try:
             task = db_manager.get_task(task_id)
             if not task or task['status'] == 'canceled':
+                task_queue.task_done()
+                processing = False
                 continue
             
             # 獲取任務檔案路徑
             upload_path = UPLOAD_DIR / task_id / task['filename']
             
-            # 執行處理
-            await task_processor.process_task(
+            # 在後台線程中執行處理，避免阻塞事件循環
+            await asyncio.to_thread(
+                task_processor.process_task_sync,
                 task_id=task_id,
                 audio_path=str(upload_path),
                 enable_diarization=task['enable_diarization']
@@ -91,6 +94,8 @@ async def process_queue():
             
         except Exception as e:
             print(f"處理任務 {task_id} 時發生錯誤: {e}")
+            import traceback
+            traceback.print_exc()
             db_manager.update_task_status(task_id, 'failed', error_message=str(e))
         
         finally:

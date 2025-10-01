@@ -135,14 +135,14 @@ class TaskProcessor:
         res_processed = self.merge_sentence(spk_text)
         return res_processed
     
-    async def process_task(
+    def process_task_sync(
         self, 
         task_id: str, 
         audio_path: str, 
         enable_diarization: bool = True
     ):
         """
-        處理轉錄任務
+        處理轉錄任務（同步版本，在後台線程中運行）
         
         Args:
             task_id: 任務ID
