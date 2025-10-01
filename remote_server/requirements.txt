@@ -1,5 +1,5 @@
 # --extra-index-url 告知 pip 除了預設的 PyPI 外，也到這個網址尋找套件
---extra-index-url https://download.pytorch.org/whl/cu126
+--extra-index-url https://download.pytorch.org/whl/cu128
 
 # PyTorch 相關套件
 torch
