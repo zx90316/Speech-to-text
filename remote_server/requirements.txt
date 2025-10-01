@@ -10,6 +10,7 @@ torchcodec
 # Web 框架與伺服器
 fastapi
 uvicorn[standard]
+python-multipart
 
 # Hugging Face 生態系
 transformers>=4.41.0
@@ -20,8 +21,10 @@ huggingface_hub
 # 語者分離套件
 pyannote.audio
 
+# Whisper 轉錄
+faster-whisper
+
 # 其他依賴
 numpy
 python-dotenv
-
-faster-whisper
+opencc-python-reimplemented

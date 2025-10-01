@@ -17,9 +17,6 @@ enable_diarization = True  # 設定是否啟用語者分離功能
 # https://www.gyan.dev/ffmpeg/builds/
 os.environ["PATH"] += os.pathsep + "ffmpeg-7.1.1-full_build-shared/bin"
 
-# 也添加本地 ffmpeg 路徑
-ffmpeg_path = os.path.join(os.getcwd(), "ffmpeg-7.1.1-full_build-shared", "bin")
-os.environ["PATH"] += os.pathsep + ffmpeg_path
 # 載入環境變數
 load_dotenv()
 
