@@ -6,11 +6,15 @@ import { UploadSection } from '../components/UploadSection';
 import { TaskProgress } from '../components/TaskProgress';
 import { TaskHistory } from '../components/TaskHistory';
 import { ServiceStats } from '../components/ServiceStats';
+import { AdminPage } from '../pages/AdminPage';
 import { api } from '../api';
 import { addTaskId } from '../utils/taskStorage';
-import { Mic } from 'lucide-react';
+import { Mic, Shield, Home } from 'lucide-react';
+
+type ViewMode = 'main' | 'admin';
 
 function App() {
+  const [viewMode, setViewMode] = useState<ViewMode>('main');
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [uploading, setUploading] = useState(false);
@@ -51,6 +55,20 @@ function App() {
     setCurrentTaskId(taskId);
   }, []);
 
+  if (viewMode === 'admin') {
+    return (
+      <div className="app">
+        <nav className="app-nav">
+          <button className="nav-btn" onClick={() => setViewMode('main')}>
+            <Home size={20} />
+            返回主頁
+          </button>
+        </nav>
+        <AdminPage />
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -62,15 +80,21 @@ function App() {
               <p className="subtitle">高品質中文語音辨識 • 支援語者分離</p>
             </div>
           </div>
-          <ServiceStats />
+          <div className="header-right">
+            <ServiceStats />
+            <button className="admin-link-btn" onClick={() => setViewMode('admin')}>
+              <Shield size={20} />
+              管理
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="app-main">
         <div className="main-content">
           <div className="left-panel">
-            <UploadSection 
-              onUpload={handleUpload} 
+            <UploadSection
+              onUpload={handleUpload}
               disabled={uploading}
             />
 

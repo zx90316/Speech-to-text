@@ -10,7 +10,7 @@ from typing import Optional, List
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Query, Depends
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -466,12 +466,124 @@ async def get_stats():
     """
     processing_count = db_manager.get_processing_count()
     queue_size = task_queue.qsize()
-    
+
     return {
         "queue_size": queue_size,
         "processing_count": processing_count,
         "is_processing": processing,
         "total_waiting": queue_size + processing_count
+    }
+
+
+# ==================== 管理者 API ====================
+
+def verify_admin_token(token: str = Query(..., description="管理者 Token")):
+    """驗證管理者 Token"""
+    admin_token = os.getenv("ADMIN_TOKEN", "admin_secret_token_2024")
+    if token != admin_token:
+        raise HTTPException(status_code=403, detail="無效的管理者權限")
+    return True
+
+
+@app.get("/api/admin/tasks", summary="管理者 - 獲取所有任務")
+async def admin_get_all_tasks(
+    _: bool = Depends(verify_admin_token),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    status: Optional[str] = Query(None, description="篩選狀態")
+):
+    """
+    管理者：獲取所有任務
+    需要提供有效的 admin_token
+    """
+    tasks = db_manager.get_all_tasks(limit=limit, offset=offset, status=status)
+    total = db_manager.get_total_tasks_count(status=status)
+
+    simplified_tasks = []
+    for task in tasks:
+        simplified_tasks.append({
+            "task_id": task['task_id'],
+            "client_ip": task['client_ip'],
+            "filename": task['filename'],
+            "status": task['status'],
+            "progress": task['progress'],
+            "enable_diarization": task['enable_diarization'],
+            "created_at": task['created_at'],
+            "completed_at": task['completed_at'],
+            "has_result": task['result_path'] is not None
+        })
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "tasks": simplified_tasks
+    }
+
+
+@app.get("/api/admin/stats", summary="管理者 - 系統統計")
+async def admin_get_stats(_: bool = Depends(verify_admin_token)):
+    """
+    管理者：獲取詳細的系統統計資訊
+    """
+    stats = db_manager.get_stats_summary()
+    queue_size = task_queue.qsize()
+    processing_count = db_manager.get_processing_count()
+
+    return {
+        **stats,
+        "queue_size": queue_size,
+        "processing_count": processing_count,
+        "is_processing": processing
+    }
+
+
+@app.post("/api/admin/tasks/batch-delete", summary="管理者 - 批量刪除任務")
+async def admin_batch_delete_tasks(
+    _: bool = Depends(verify_admin_token),
+    task_ids: List[str] = Query(..., description="要刪除的任務 ID 列表")
+):
+    """
+    管理者：批量刪除任務及其相關檔案
+    """
+    import shutil
+
+    deleted_count = 0
+    for task_id in task_ids:
+        # 刪除檔案
+        upload_dir = UPLOAD_DIR / task_id
+        if upload_dir.exists():
+            shutil.rmtree(upload_dir, ignore_errors=True)
+
+        result_dir = RESULT_DIR / task_id
+        if result_dir.exists():
+            shutil.rmtree(result_dir, ignore_errors=True)
+
+        deleted_count += 1
+
+    # 從資料庫刪除
+    db_deleted = db_manager.batch_delete_tasks(task_ids)
+
+    return {
+        "deleted_count": db_deleted,
+        "files_cleaned": deleted_count,
+        "message": f"已刪除 {db_deleted} 個任務"
+    }
+
+
+@app.post("/api/admin/cleanup", summary="管理者 - 清理舊任務")
+async def admin_cleanup_old_tasks(
+    _: bool = Depends(verify_admin_token),
+    days: int = Query(7, ge=1, description="清理幾天前的任務")
+):
+    """
+    管理者：清理指定天數前的已完成任務
+    """
+    deleted_count = db_manager.cleanup_old_tasks(days=days)
+
+    return {
+        "deleted_count": deleted_count,
+        "message": f"已清理 {days} 天前的 {deleted_count} 個任務"
     }
 
 

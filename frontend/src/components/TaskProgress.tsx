@@ -2,7 +2,7 @@
  * 任務進度組件
  */
 import { useEffect, useState, useRef } from 'react';
-import { Loader2, CheckCircle2, XCircle, Download, X, Clock, Users } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Download, X, Clock, Users, Eye } from 'lucide-react';
 import { api } from '../api';
 import type { Task, ProgressEvent } from '../types';
 
@@ -16,6 +16,7 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
   const [task, setTask] = useState<Task | null>(null);
   const [progressEvent, setProgressEvent] = useState<ProgressEvent | null>(null);
   const [canceling, setCanceling] = useState(false);
+  const [showPartialModal, setShowPartialModal] = useState(false);
   const hasCompletedRef = useRef(false);
 
   useEffect(() => {
@@ -194,18 +195,62 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
       </div>
 
       {progressEvent?.partial_result && progressEvent.partial_result.length > 0 && (
-        <div className="partial-result">
-          <h4>部分轉錄結果：</h4>
-          <div className="result-preview">
-            {progressEvent.partial_result.slice(-5).map((segment, idx) => (
-              <div key={idx} className="segment">
+        <div className="partial-result-preview">
+          <div className="preview-header">
+            <span>部分轉錄結果預覽 ({progressEvent.partial_result.length} 段)</span>
+            <button
+              className="view-all-btn"
+              onClick={() => setShowPartialModal(true)}
+            >
+              <Eye size={16} />
+              查看全部
+            </button>
+          </div>
+          <div className="result-preview-mini">
+            {progressEvent.partial_result.slice(-3).map((segment, idx) => (
+              <div key={idx} className="segment-mini">
                 <span className="timestamp">
-                  [{segment.start.toFixed(1)}s - {segment.end.toFixed(1)}s]
+                  [{segment.start.toFixed(1)}s]
                 </span>
                 {segment.speaker && <span className="speaker">{segment.speaker}:</span>}
                 <span className="text">{segment.text}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {showPartialModal && progressEvent?.partial_result && (
+        <div className="modal-overlay" onClick={() => setShowPartialModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>部分轉錄結果</h3>
+              <button className="modal-close-btn" onClick={() => setShowPartialModal(false)}>
+                <X size={24} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="modal-stats">
+                <span>共 {progressEvent.partial_result.length} 段</span>
+                <span>進度: {currentProgress.toFixed(1)}%</span>
+              </div>
+              <div className="result-list">
+                {progressEvent.partial_result.map((segment, idx) => (
+                  <div key={idx} className="segment-full">
+                    <div className="segment-header">
+                      <span className="segment-number">#{idx + 1}</span>
+                      <span className="timestamp">
+                        {segment.start.toFixed(1)}s - {segment.end.toFixed(1)}s
+                      </span>
+                      {segment.speaker && (
+                        <span className="speaker-badge">{segment.speaker}</span>
+                      )}
+                    </div>
+                    <div className="segment-text">{segment.text}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}

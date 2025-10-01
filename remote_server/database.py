@@ -287,21 +287,124 @@ class DatabaseManager:
         finally:
             conn.close()
     
+    def get_all_tasks(self, limit: int = 100, offset: int = 0, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """獲取所有任務（管理者用）"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        if status:
+            cursor.execute("""
+                SELECT * FROM tasks
+                WHERE status = ?
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """, (status, limit, offset))
+        else:
+            cursor.execute("""
+                SELECT * FROM tasks
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """, (limit, offset))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        tasks = []
+        for row in rows:
+            task = dict(row)
+            if task.get('partial_result'):
+                try:
+                    task['partial_result'] = json.loads(task['partial_result'])
+                except:
+                    pass
+            tasks.append(task)
+
+        return tasks
+
+    def get_total_tasks_count(self, status: Optional[str] = None) -> int:
+        """獲取任務總數"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        if status:
+            cursor.execute("SELECT COUNT(*) as count FROM tasks WHERE status = ?", (status,))
+        else:
+            cursor.execute("SELECT COUNT(*) as count FROM tasks")
+
+        result = cursor.fetchone()
+        conn.close()
+        return result['count'] if result else 0
+
+    def get_stats_summary(self) -> Dict[str, Any]:
+        """獲取統計摘要（管理者用）"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        # 各狀態任務數量
+        cursor.execute("""
+            SELECT status, COUNT(*) as count
+            FROM tasks
+            GROUP BY status
+        """)
+        status_counts = {row['status']: row['count'] for row in cursor.fetchall()}
+
+        # 總任務數
+        cursor.execute("SELECT COUNT(*) as count FROM tasks")
+        total = cursor.fetchone()['count']
+
+        # 今日任務數
+        cursor.execute("""
+            SELECT COUNT(*) as count FROM tasks
+            WHERE date(created_at) = date('now')
+        """)
+        today = cursor.fetchone()['count']
+
+        # 獨特 IP 數量
+        cursor.execute("SELECT COUNT(DISTINCT client_ip) as count FROM tasks")
+        unique_ips = cursor.fetchone()['count']
+
+        conn.close()
+
+        return {
+            "total_tasks": total,
+            "today_tasks": today,
+            "unique_users": unique_ips,
+            "status_counts": status_counts
+        }
+
+    def batch_delete_tasks(self, task_ids: List[str]) -> int:
+        """批量刪除任務"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        deleted_count = 0
+        for task_id in task_ids:
+            try:
+                cursor.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+                if cursor.rowcount > 0:
+                    deleted_count += 1
+            except Exception as e:
+                print(f"刪除任務 {task_id} 失敗: {e}")
+
+        conn.commit()
+        conn.close()
+        return deleted_count
+
     def cleanup_old_tasks(self, days: int = 7):
         """清理舊任務（可選功能）"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        
+
         cursor.execute("""
-            DELETE FROM tasks 
-            WHERE completed_at IS NOT NULL 
+            DELETE FROM tasks
+            WHERE completed_at IS NOT NULL
             AND datetime(completed_at) < datetime('now', '-' || ? || ' days')
         """, (days,))
-        
+
         deleted_count = cursor.rowcount
         conn.commit()
         conn.close()
-        
+
         return deleted_count
 
 
