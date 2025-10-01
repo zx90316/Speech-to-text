@@ -9,15 +9,15 @@ from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline
 from dotenv import load_dotenv
 
-file = "中.m4a"
-#file = "短.mp3"
+file = "語音 250814_133051.m4a"
 
 # 新增 FFmpeg 可執行檔的路徑到 PATH
 # 注意要把bin底下的DLL複製到.venv/Lib/site-packages/torchcodec底下
-os.environ["PATH"] += os.pathsep + "ffmpeg/bin"
+# https://www.gyan.dev/ffmpeg/builds/
+os.environ["PATH"] += os.pathsep + "ffmpeg-7.1.1-full_build-shared/bin"
 
 # 也添加本地 ffmpeg 路徑
-ffmpeg_path = os.path.join(os.getcwd(), "ffmpeg", "bin")
+ffmpeg_path = os.path.join(os.getcwd(), "ffmpeg-7.1.1-full_build-shared", "bin")
 os.environ["PATH"] += os.pathsep + ffmpeg_path
 # 載入環境變數
 load_dotenv()
@@ -147,7 +147,7 @@ if __name__ == "__main__":
 
     # 載入模型
     progress.update("初始化", 0.0, message="載入 BELLE Whisper ASR 模型")
-    model = WhisperModel("k1nto/Belle-whisper-large-v3-zh-punct-ct2", device=device)
+    model = WhisperModel("k1nto/Belle-whisper-large-v3-zh-punct-ct2", device=device , compute_type="float16") #int8_float16 int8
 
     progress.update("初始化", 5.0, message=f"Whisper Large V3 模型載入完成 (設備: {device})")
 

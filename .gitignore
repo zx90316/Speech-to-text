@@ -11,4 +11,5 @@ offline-packages/
 offline-packages-backend/
 .env
 audios_wav/
-ffmpeg/
+audios_txt/
+ffmpeg*/
