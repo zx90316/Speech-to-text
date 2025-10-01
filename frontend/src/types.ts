@@ -36,6 +36,7 @@ export interface ProgressEvent {
   current_stage: string | null;
   queue_position: number;
   error_message: string | null;
+  has_result: boolean;
   timestamp: string;
   partial_result?: Array<{
     start: number;

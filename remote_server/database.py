@@ -244,12 +244,28 @@ class DatabaseManager:
         task = self.get_task(task_id)
         if not task:
             return False
-        
+
         if task['status'] in ('completed', 'failed', 'canceled'):
             return False
-        
+
         self.update_task_status(task_id, 'canceled')
         return True
+
+    def delete_task(self, task_id: str) -> bool:
+        """永久刪除任務記錄"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            print(f"刪除任務記錄失敗: {e}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
     
     def cleanup_old_tasks(self, days: int = 7):
         """清理舊任務（可選功能）"""

@@ -182,14 +182,42 @@ body {
 
 .task-item:hover { background: var(--surface); transform: translateY(-2px); }
 
-.task-item-header { display: flex; justify-content: space-between; margin-bottom: 0.5rem; }
-.filename { font-weight: 500; }
+.task-item-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; }
+.task-item-title { flex: 1; }
+.filename { font-weight: 500; display: block; margin-bottom: 0.25rem; }
 .task-item-status {
   display: flex;
   align-items: center;
   gap: 0.25rem;
   font-size: 0.75rem;
   color: var(--text-dim);
+}
+.task-item-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+.download-icon-btn,
+.delete-icon-btn {
+  padding: 0.5rem;
+  border: none;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: transparent;
+}
+.download-icon-btn {
+  color: var(--primary);
+}
+.download-icon-btn:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+.delete-icon-btn {
+  color: var(--text-dim);
+}
+.delete-icon-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
 }
 
 .mini-progress-bar {

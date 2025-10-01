@@ -2,8 +2,9 @@
  * 任務歷史組件
  */
 import { useEffect, useState } from 'react';
-import { History, Download, RefreshCw, Clock, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { History, Download, RefreshCw, Clock, CheckCircle2, XCircle, Loader2, Trash2 } from 'lucide-react';
 import { api } from '../api';
+import { getStoredTaskIds, removeTaskId } from '../utils/taskStorage';
 import type { Task } from '../types';
 
 interface TaskHistoryProps {
@@ -19,9 +20,40 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
   const loadTasks = async () => {
     setLoading(true);
     try {
+      // 1. 從 localStorage 獲取任務
+      const storedIds = getStoredTaskIds();
+      let allTasks: Task[] = [];
+
+      if (storedIds.length > 0) {
+        const batchResult = await api.getTasksBatch(storedIds);
+        allTasks = batchResult.tasks;
+      }
+
+      // 2. 從 IP 獲取任務（作為備份）
       const history = await api.getMyTasks(20);
-      setTasks(history.tasks);
       setClientIp(history.client_ip);
+
+      // 3. 合併兩個來源的任務，去重
+      const taskMap = new Map<string, Task>();
+
+      // 先加入 localStorage 的任務
+      allTasks.forEach(task => {
+        taskMap.set(task.task_id, task);
+      });
+
+      // 再加入 IP 的任務（不覆蓋已存在的）
+      history.tasks.forEach(task => {
+        if (!taskMap.has(task.task_id)) {
+          taskMap.set(task.task_id, task);
+        }
+      });
+
+      // 按建立時間排序
+      const mergedTasks = Array.from(taskMap.values()).sort((a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+
+      setTasks(mergedTasks);
     } catch (error) {
       console.error('載入任務歷史失敗:', error);
     } finally {
@@ -31,27 +63,14 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
 
   useEffect(() => {
     let isMounted = true;
-    
+
     const loadTasksIfMounted = async () => {
       if (!isMounted) return;
-      setLoading(true);
-      try {
-        const history = await api.getMyTasks(20);
-        if (isMounted) {
-          setTasks(history.tasks);
-          setClientIp(history.client_ip);
-        }
-      } catch (error) {
-        console.error('載入任務歷史失敗:', error);
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
+      await loadTasks();
     };
-    
+
     loadTasksIfMounted();
-    
+
     return () => {
       isMounted = false;
     };
@@ -114,6 +133,22 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
     document.body.removeChild(a);
   };
 
+  const handleDelete = async (taskId: string, filename: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm(`確定要刪除任務「${filename}」嗎？\n此操作將永久刪除任務記錄和相關檔案。`)) {
+      try {
+        await api.deleteTask(taskId);
+        // 從 localStorage 移除
+        removeTaskId(taskId);
+        // 刷新任務列表
+        await loadTasks();
+      } catch (error) {
+        console.error('刪除任務失敗:', error);
+        alert('刪除任務失敗，請稍後再試。');
+      }
+    }
+  };
+
   if (loading) {
     return (
       <div className="task-history">
@@ -171,15 +206,24 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
                     <span>{getStatusText(task.status)}</span>
                   </div>
                 </div>
-                {task.status === 'completed' && task.has_result && (
+                <div className="task-item-actions">
+                  {task.status === 'completed' && task.has_result && (
+                    <button
+                      className="download-icon-btn"
+                      onClick={(e) => handleDownload(task.task_id, task.filename, e)}
+                      title="下載結果"
+                    >
+                      <Download size={16} />
+                    </button>
+                  )}
                   <button
-                    className="download-icon-btn"
-                    onClick={(e) => handleDownload(task.task_id, task.filename, e)}
-                    title="下載結果"
+                    className="delete-icon-btn"
+                    onClick={(e) => handleDelete(task.task_id, task.filename, e)}
+                    title="刪除任務"
                   >
-                    <Download size={16} />
+                    <Trash2 size={16} />
                   </button>
-                )}
+                </div>
               </div>
 
               {task.status === 'processing' && (

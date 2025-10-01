@@ -42,6 +42,15 @@ export const api = {
   },
 
   /**
+   * 永久刪除任務（包含檔案）
+   */
+  async deleteTask(taskId: string): Promise<void> {
+    await axios.delete(`${API_BASE_URL}/tasks/${taskId}`, {
+      params: { permanent: true }
+    });
+  },
+
+  /**
    * 下載結果
    */
   downloadResult(taskId: string, fileType: 'transcript' | 'raw' = 'transcript'): string {
@@ -49,12 +58,23 @@ export const api = {
   },
 
   /**
-   * 查詢我的任務歷史
+   * 查詢我的任務歷史（基於 IP）
    */
   async getMyTasks(limit: number = 50): Promise<TaskHistory> {
     const response = await axios.get<TaskHistory>(`${API_BASE_URL}/my-tasks`, {
       params: { limit }
     });
+    return response.data;
+  },
+
+  /**
+   * 批量查詢任務（基於任務 ID 列表）
+   */
+  async getTasksBatch(taskIds: string[]): Promise<{ total: number; tasks: Task[] }> {
+    const response = await axios.post<{ total: number; tasks: Task[] }>(
+      `${API_BASE_URL}/tasks/batch`,
+      taskIds
+    );
     return response.data;
   },
 

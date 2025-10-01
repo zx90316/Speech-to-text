@@ -32,13 +32,16 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
 
     eventSource.onmessage = (event) => {
       if (!isMounted) return;
-      
+
       const data: ProgressEvent = JSON.parse(event.data);
       setProgressEvent(data);
 
-      // 如果任務完成，關閉連接並只調用一次 onComplete
+      // 當任務完成時，重新獲取完整的任務資訊以確保 has_result 正確
       if (data.status === 'completed' && !hasCompletedRef.current) {
         hasCompletedRef.current = true;
+        api.getTask(taskId).then(taskData => {
+          if (isMounted) setTask(taskData);
+        }).catch(console.error);
         eventSource.close();
         // 延遲調用以確保狀態更新完成
         setTimeout(() => {
@@ -95,6 +98,8 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
   const currentProgress = progressEvent?.progress ?? task.progress;
   const currentStage = progressEvent?.current_stage ?? task.current_stage ?? task.status;
   const queuePosition = progressEvent?.queue_position ?? task.queue_position;
+  const currentStatus = progressEvent?.status ?? task.status;
+  const hasResult = progressEvent?.has_result ?? task.has_result;
 
   return (
     <div className="task-progress">
@@ -117,7 +122,7 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
       </div>
 
       <div className="status-section">
-        {task.status === 'pending' && (
+        {currentStatus === 'pending' && (
           <div className="status pending">
             <Clock className="status-icon" size={24} />
             <div>
@@ -127,7 +132,7 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
           </div>
         )}
 
-        {task.status === 'processing' && (
+        {currentStatus === 'processing' && (
           <div className="status processing">
             <Loader2 className="status-icon spin" size={24} />
             <div>
@@ -137,7 +142,7 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
           </div>
         )}
 
-        {task.status === 'completed' && (
+        {currentStatus === 'completed' && (
           <div className="status completed">
             <CheckCircle2 className="status-icon" size={24} />
             <div>
@@ -147,7 +152,7 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
           </div>
         )}
 
-        {task.status === 'failed' && (
+        {currentStatus === 'failed' && (
           <div className="status failed">
             <XCircle className="status-icon" size={24} />
             <div>
@@ -157,7 +162,7 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
           </div>
         )}
 
-        {task.status === 'canceled' && (
+        {currentStatus === 'canceled' && (
           <div className="status canceled">
             <XCircle className="status-icon" size={24} />
             <div>
@@ -196,9 +201,9 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
       )}
 
       <div className="actions">
-        {(task.status === 'pending' || task.status === 'processing') && (
-          <button 
-            className="cancel-btn" 
+        {(currentStatus === 'pending' || currentStatus === 'processing') && (
+          <button
+            className="cancel-btn"
             onClick={handleCancel}
             disabled={canceling}
           >
@@ -207,7 +212,7 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
           </button>
         )}
 
-        {task.status === 'completed' && task.has_result && (
+        {currentStatus === 'completed' && hasResult && (
           <>
             <button 
               className="download-btn primary" 

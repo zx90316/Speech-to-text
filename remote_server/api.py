@@ -260,6 +260,7 @@ async def stream_task_progress(task_id: str):
                     "current_stage": task['current_stage'],
                     "queue_position": queue_position,
                     "error_message": task['error_message'],
+                    "has_result": task['result_path'] is not None,
                     "timestamp": datetime.now().isoformat()
                 }
                 
@@ -288,25 +289,50 @@ async def stream_task_progress(task_id: str):
 
 
 @app.delete("/api/tasks/{task_id}", summary="取消任務")
-async def cancel_task(task_id: str):
+async def cancel_task(task_id: str, permanent: bool = Query(False, description="是否永久刪除任務及其檔案")):
     """
     取消正在進行或排隊中的任務
-    
+
     - **task_id**: 任務ID
-    
-    注意：已完成的任務無法取消
+    - **permanent**: 如果為 True，則永久刪除任務記錄和相關檔案
+
+    注意：已完成的任務無法取消，但可以永久刪除
     """
+    task = db_manager.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="找不到該任務")
+
+    # 如果是永久刪除
+    if permanent:
+        import shutil
+
+        # 刪除上傳的檔案
+        upload_dir = UPLOAD_DIR / task_id
+        if upload_dir.exists():
+            shutil.rmtree(upload_dir)
+
+        # 刪除結果檔案
+        result_dir = RESULT_DIR / task_id
+        if result_dir.exists():
+            shutil.rmtree(result_dir)
+
+        # 從資料庫刪除記錄
+        db_manager.delete_task(task_id)
+
+        return {
+            "task_id": task_id,
+            "status": "deleted",
+            "message": "任務已永久刪除"
+        }
+
+    # 否則只是取消任務
     success = db_manager.cancel_task(task_id)
     if not success:
-        task = db_manager.get_task(task_id)
-        if not task:
-            raise HTTPException(status_code=404, detail="找不到該任務")
-        else:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"任務狀態為 {task['status']}，無法取消"
-            )
-    
+        raise HTTPException(
+            status_code=400,
+            detail=f"任務狀態為 {task['status']}，無法取消"
+        )
+
     return {
         "task_id": task_id,
         "status": "canceled",
@@ -387,6 +413,38 @@ async def get_my_tasks(
         "client_ip": client_ip,
         "total": len(simplified_tasks),
         "tasks": simplified_tasks
+    }
+
+
+@app.post("/api/tasks/batch", summary="批量查詢任務")
+async def get_tasks_batch(task_ids: List[str]):
+    """
+    根據任務 ID 列表批量查詢任務資訊
+    支援 localStorage 方式追蹤任務
+
+    - **task_ids**: 任務 ID 列表
+    """
+    if len(task_ids) > 100:
+        raise HTTPException(status_code=400, detail="一次最多查詢 100 個任務")
+
+    tasks = []
+    for task_id in task_ids:
+        task = db_manager.get_task(task_id)
+        if task:
+            tasks.append({
+                "task_id": task['task_id'],
+                "filename": task['filename'],
+                "status": task['status'],
+                "progress": task['progress'],
+                "enable_diarization": task['enable_diarization'],
+                "created_at": task['created_at'],
+                "completed_at": task['completed_at'],
+                "has_result": task['result_path'] is not None
+            })
+
+    return {
+        "total": len(tasks),
+        "tasks": tasks
     }
 
 

@@ -7,6 +7,7 @@ import { TaskProgress } from '../components/TaskProgress';
 import { TaskHistory } from '../components/TaskHistory';
 import { ServiceStats } from '../components/ServiceStats';
 import { api } from '../api';
+import { addTaskId } from '../utils/taskStorage';
 import { Mic } from 'lucide-react';
 
 function App() {
@@ -19,6 +20,8 @@ function App() {
     try {
       const response = await api.createTask(file, enableDiarization);
       setCurrentTaskId(response.task_id);
+      // 儲存任務 ID 到 localStorage
+      addTaskId(response.task_id);
       // 提交新任務後刷新歷史
       setRefreshTrigger(prev => prev + 1);
     } catch (error: any) {
