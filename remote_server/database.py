@@ -39,7 +39,7 @@ class DatabaseManager:
         """初始化資料庫表格"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        
+
         # 創建任務表
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
@@ -50,6 +50,8 @@ class DatabaseManager:
                 progress REAL DEFAULT 0.0,
                 current_stage TEXT,
                 enable_diarization BOOLEAN DEFAULT 1,
+                start_time REAL,
+                end_time REAL,
                 queue_position INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL,
                 started_at TEXT,
@@ -59,7 +61,23 @@ class DatabaseManager:
                 partial_result TEXT
             )
         """)
-        
+
+        # 遷移：檢查並添加新欄位（如果表已存在但沒有這些欄位）
+        try:
+            # 檢查 start_time 欄位是否存在
+            cursor.execute("PRAGMA table_info(tasks)")
+            columns = [row[1] for row in cursor.fetchall()]
+
+            if 'start_time' not in columns:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN start_time REAL")
+                print("已添加 start_time 欄位")
+
+            if 'end_time' not in columns:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN end_time REAL")
+                print("已添加 end_time 欄位")
+        except Exception as e:
+            print(f"資料庫遷移警告: {e}")
+
         # 創建索引以加快查詢速度
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_client_ip ON tasks(client_ip)
@@ -70,30 +88,32 @@ class DatabaseManager:
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_created_at ON tasks(created_at DESC)
         """)
-        
+
         conn.commit()
         conn.close()
     
     def create_task(
-        self, 
-        task_id: str, 
-        client_ip: str, 
+        self,
+        task_id: str,
+        client_ip: str,
         filename: str,
-        enable_diarization: bool = True
+        enable_diarization: bool = True,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None
     ) -> Dict[str, Any]:
         """創建新任務"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        
+
         created_at = datetime.now().isoformat()
-        
+
         cursor.execute("""
             INSERT INTO tasks (
-                task_id, client_ip, filename, status, 
-                enable_diarization, created_at
+                task_id, client_ip, filename, status,
+                enable_diarization, start_time, end_time, created_at
             )
-            VALUES (?, ?, ?, 'pending', ?, ?)
-        """, (task_id, client_ip, filename, enable_diarization, created_at))
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
+        """, (task_id, client_ip, filename, enable_diarization, start_time, end_time, created_at))
         
         conn.commit()
         conn.close()

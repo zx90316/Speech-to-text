@@ -3,9 +3,10 @@
  */
 import { useState, useRef } from 'react';
 import { Upload, FileAudio, X } from 'lucide-react';
+import { AudioPlayer } from './AudioPlayer';
 
 interface UploadSectionProps {
-  onUpload: (file: File, enableDiarization: boolean) => void;
+  onUpload: (file: File, enableDiarization: boolean, startTime?: number, endTime?: number) => void;
   disabled?: boolean;
 }
 
@@ -13,7 +14,14 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [enableDiarization, setEnableDiarization] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
+  const [startTime, setStartTime] = useState<number | undefined>(undefined);
+  const [endTime, setEndTime] = useState<number | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleTimeRangeChange = (start: number, end: number) => {
+    setStartTime(start);
+    setEndTime(end);
+  };
 
   const handleFileSelect = (file: File) => {
     const allowedTypes = ['audio/mpeg', 'audio/wav', 'audio/m4a', 'audio/flac', 'audio/mp3'];
@@ -59,8 +67,10 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
 
   const handleSubmit = () => {
     if (selectedFile) {
-      onUpload(selectedFile, enableDiarization);
+      onUpload(selectedFile, enableDiarization, startTime, endTime);
       setSelectedFile(null);
+      setStartTime(undefined);
+      setEndTime(undefined);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -122,6 +132,10 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
           </div>
         )}
       </div>
+
+      {selectedFile && (
+        <AudioPlayer file={selectedFile} onTimeRangeChange={handleTimeRangeChange} />
+      )}
 
       <div className="options">
         <label className="checkbox-label">

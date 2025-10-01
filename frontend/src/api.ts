@@ -10,19 +10,28 @@ export const api = {
   /**
    * 提交轉錄任務
    */
-  async createTask(file: File, enableDiarization: boolean = true): Promise<TaskCreateResponse> {
+  async createTask(
+    file: File,
+    enableDiarization: boolean = true,
+    startTime?: number,
+    endTime?: number
+  ): Promise<TaskCreateResponse> {
     const formData = new FormData();
     formData.append('file', file);
-    
+
+    const params: any = { enable_diarization: enableDiarization };
+    if (startTime !== undefined) params.start_time = startTime;
+    if (endTime !== undefined) params.end_time = endTime;
+
     const response = await axios.post<TaskCreateResponse>(
       `${API_BASE_URL}/tasks`,
       formData,
       {
-        params: { enable_diarization: enableDiarization },
+        params,
         headers: { 'Content-Type': 'multipart/form-data' }
       }
     );
-    
+
     return response.data;
   },
 

@@ -71,24 +71,39 @@ class TaskProcessor:
         task = db_manager.get_task(task_id)
         return task and task['status'] == 'canceled'
     
-    def convert_audio_to_wav(self, input_path: str, output_path: str):
-        """轉換音訊為 WAV 格式"""
+    def convert_audio_to_wav(self, input_path: str, output_path: str, start_time: Optional[float] = None, end_time: Optional[float] = None):
+        """轉換音訊為 WAV 格式，支援時間裁切"""
         if os.path.exists(output_path):
             return
-        
-        command = [
-            "ffmpeg",
-            "-i", input_path,
+
+        command = ["ffmpeg"]
+
+        # 添加開始時間參數
+        if start_time is not None:
+            command.extend(["-ss", str(start_time)])
+
+        command.extend(["-i", input_path])
+
+        # 添加結束時間參數（使用 -t 指定持續時間）
+        if end_time is not None:
+            if start_time is not None:
+                duration = end_time - start_time
+            else:
+                duration = end_time
+            command.extend(["-t", str(duration)])
+
+        command.extend([
             "-acodec", "pcm_s16le",
             "-ac", "1",
             "-ar", "16000",
             output_path
-        ]
+        ])
+
         try:
             subprocess.run(
-                command, 
-                check=True, 
-                stdout=subprocess.PIPE, 
+                command,
+                check=True,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
         except subprocess.CalledProcessError as e:
@@ -136,18 +151,22 @@ class TaskProcessor:
         return res_processed
     
     def process_task_sync(
-        self, 
-        task_id: str, 
-        audio_path: str, 
-        enable_diarization: bool = True
+        self,
+        task_id: str,
+        audio_path: str,
+        enable_diarization: bool = True,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None
     ):
         """
         處理轉錄任務（同步版本，在後台線程中運行）
-        
+
         Args:
             task_id: 任務ID
             audio_path: 音訊檔案路徑
             enable_diarization: 是否啟用語者分離
+            start_time: 開始時間（秒）
+            end_time: 結束時間（秒）
         """
         try:
             # 檢查是否被取消
@@ -181,7 +200,7 @@ class TaskProcessor:
             )
             
             converted_audio_path = result_dir / "converted_audio.wav"
-            self.convert_audio_to_wav(audio_path, str(converted_audio_path))
+            self.convert_audio_to_wav(audio_path, str(converted_audio_path), start_time, end_time)
             
             # 檢查是否被取消
             if self.check_cancelled(task_id):

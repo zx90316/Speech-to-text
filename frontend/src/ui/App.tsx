@@ -15,10 +15,15 @@ function App() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [uploading, setUploading] = useState(false);
 
-  const handleUpload = useCallback(async (file: File, enableDiarization: boolean) => {
+  const handleUpload = useCallback(async (
+    file: File,
+    enableDiarization: boolean,
+    startTime?: number,
+    endTime?: number
+  ) => {
     setUploading(true);
     try {
-      const response = await api.createTask(file, enableDiarization);
+      const response = await api.createTask(file, enableDiarization, startTime, endTime);
       setCurrentTaskId(response.task_id);
       // 儲存任務 ID 到 localStorage
       addTaskId(response.task_id);

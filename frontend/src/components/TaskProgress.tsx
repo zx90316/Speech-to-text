@@ -48,7 +48,17 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
           if (isMounted) onComplete();
         }, 500);
       } else if (data.status === 'failed' || data.status === 'canceled') {
-        eventSource.close();
+        // 任務失敗或取消時，也要更新任務資訊並刷新歷史
+        if (!hasCompletedRef.current) {
+          hasCompletedRef.current = true;
+          api.getTask(taskId).then(taskData => {
+            if (isMounted) setTask(taskData);
+          }).catch(console.error);
+          eventSource.close();
+          setTimeout(() => {
+            if (isMounted) onComplete();
+          }, 500);
+        }
       }
     };
 
