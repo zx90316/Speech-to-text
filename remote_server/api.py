@@ -91,7 +91,10 @@ async def process_queue():
                 audio_path=str(upload_path),
                 enable_diarization=task['enable_diarization'],
                 start_time=task.get('start_time'),
-                end_time=task.get('end_time')
+                end_time=task.get('end_time'),
+                language=task.get('language'),
+                task=task.get('task', 'transcribe'),
+                model=task.get('model', 'XA9/Belle-faster-whisper-large-v3-zh-punct')
             )
             
         except Exception as e:
@@ -131,7 +134,10 @@ async def create_task(
     file: UploadFile = File(..., description="音訊檔案 (支援 mp3, wav, m4a, flac)"),
     enable_diarization: bool = Query(True, description="是否啟用語者分離"),
     start_time: Optional[float] = Query(None, ge=0, description="開始時間（秒）"),
-    end_time: Optional[float] = Query(None, ge=0, description="結束時間（秒）")
+    end_time: Optional[float] = Query(None, ge=0, description="結束時間（秒）"),
+    language: Optional[str] = Query(None, description="語言代碼（如 zh, en, ja），留空自動偵測"),
+    task: str = Query("transcribe", description="任務類型：transcribe（轉錄）或 translate（翻譯成英文）"),
+    model: str = Query("XA9/Belle-faster-whisper-large-v3-zh-punct", description="Whisper 模型")
 ):
     """
     提交新的語音轉文字任務
@@ -140,9 +146,14 @@ async def create_task(
     - **enable_diarization**: 是否啟用語者分離功能
     - **start_time**: 音訊開始時間（秒），可選
     - **end_time**: 音訊結束時間（秒），可選
+    - **language**: 語言代碼（如 zh, en, ja），留空則自動偵測
+    - **task**: transcribe（轉錄）或 translate（翻譯成英文）
 
     返回任務ID，可用於查詢進度和下載結果
     """
+    # 驗證任務類型
+    if task not in ["transcribe", "translate"]:
+        raise HTTPException(status_code=400, detail="任務類型必須是 transcribe 或 translate")
     # 驗證時間範圍
     if start_time is not None and end_time is not None and start_time >= end_time:
         raise HTTPException(status_code=400, detail="開始時間必須小於結束時間")
@@ -181,7 +192,10 @@ async def create_task(
         filename=file.filename,
         enable_diarization=enable_diarization,
         start_time=start_time,
-        end_time=end_time
+        end_time=end_time,
+        language=language,
+        task=task,
+        model=model
     )
     
     # 加入處理佇列

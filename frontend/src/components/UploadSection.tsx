@@ -6,7 +6,7 @@ import { Upload, FileAudio, X } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 
 interface UploadSectionProps {
-  onUpload: (file: File, enableDiarization: boolean, startTime?: number, endTime?: number) => void;
+  onUpload: (file: File, enableDiarization: boolean, startTime?: number, endTime?: number, language?: string, task?: string, model?: string) => void;
   disabled?: boolean;
 }
 
@@ -16,6 +16,9 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [startTime, setStartTime] = useState<number | undefined>(undefined);
   const [endTime, setEndTime] = useState<number | undefined>(undefined);
+  const [language, setLanguage] = useState<string>('');
+  const [taskType, setTaskType] = useState<string>('transcribe');
+  const [model, setModel] = useState<string>('XA9/Belle-faster-whisper-large-v3-zh-punct');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleTimeRangeChange = (start: number, end: number) => {
@@ -67,7 +70,15 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
 
   const handleSubmit = () => {
     if (selectedFile) {
-      onUpload(selectedFile, enableDiarization, startTime, endTime);
+      onUpload(
+        selectedFile,
+        enableDiarization,
+        startTime,
+        endTime,
+        language || undefined,
+        taskType,
+        model
+      );
       setSelectedFile(null);
       setStartTime(undefined);
       setEndTime(undefined);
@@ -147,6 +158,67 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
           />
           <span>啟用語者分離（多人對話識別）</span>
         </label>
+
+        <div className="language-selector">
+          <label htmlFor="language">語言：</label>
+          <select
+            id="language"
+            value={language}
+            onChange={(e) => setLanguage(e.target.value)}
+            disabled={disabled}
+          >
+            <option value="">自動偵測</option>
+            <option value="zh">中文</option>
+            <option value="en">英文</option>
+            <option value="ja">日文</option>
+            <option value="ko">韓文</option>
+            <option value="es">西班牙文</option>
+            <option value="fr">法文</option>
+            <option value="de">德文</option>
+            <option value="ru">俄文</option>
+          </select>
+        </div>
+
+        <div className="task-type-selector">
+          <label>任務類型：</label>
+          <div className="radio-group">
+            <label className="radio-label">
+              <input
+                type="radio"
+                name="taskType"
+                value="transcribe"
+                checked={taskType === 'transcribe'}
+                onChange={(e) => setTaskType(e.target.value)}
+                disabled={disabled}
+              />
+              <span>轉錄</span>
+            </label>
+            <label className="radio-label">
+              <input
+                type="radio"
+                name="taskType"
+                value="translate"
+                checked={taskType === 'translate'}
+                onChange={(e) => setTaskType(e.target.value)}
+                disabled={disabled}
+              />
+              <span>翻譯成英文</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="model-selector">
+          <label htmlFor="model">Whisper 模型：</label>
+          <select
+            id="model"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            disabled={disabled}
+          >
+            <option value="XA9/Belle-faster-whisper-large-v3-zh-punct">Belle Large V3 (推薦)</option>
+            <option value="XA9/Belle-faster-whisper-large-v3-zh-punct-int8">Belle Large V3 INT8 (較快)</option>
+          </select>
+        </div>
       </div>
 
       <button

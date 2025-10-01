@@ -112,11 +112,77 @@ body {
 .drop-zone:hover { border-color: var(--primary); }
 .drop-zone.dragging { border-color: var(--primary); transform: scale(1.02); }
 
-.options { margin: 1.5rem 0; }
+.options {
+  margin: 1.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
 .checkbox-label {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  cursor: pointer;
+}
+
+.language-selector, .model-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.language-selector label, .model-selector label {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.language-selector select, .model-selector select {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.language-selector select:hover, .model-selector select:hover {
+  border-color: var(--primary);
+}
+
+.language-selector select:focus, .model-selector select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.task-type-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.task-type-selector > label {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.radio-group {
+  display: flex;
+  gap: 1rem;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.radio-label input[type="radio"] {
   cursor: pointer;
 }
 

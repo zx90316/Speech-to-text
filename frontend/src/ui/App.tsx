@@ -23,11 +23,14 @@ function App() {
     file: File,
     enableDiarization: boolean,
     startTime?: number,
-    endTime?: number
+    endTime?: number,
+    language?: string,
+    task?: string,
+    model?: string
   ) => {
     setUploading(true);
     try {
-      const response = await api.createTask(file, enableDiarization, startTime, endTime);
+      const response = await api.createTask(file, enableDiarization, startTime, endTime, language, task, model);
       setCurrentTaskId(response.task_id);
       // 儲存任務 ID 到 localStorage
       addTaskId(response.task_id);

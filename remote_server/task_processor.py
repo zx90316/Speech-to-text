@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from pyannote.core import Segment
 import torch
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 from opencc import OpenCC
 from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline
@@ -31,40 +33,54 @@ if ffmpeg_path.exists():
 
 class TaskProcessor:
     """任務處理器類別"""
-    
+
     def __init__(self):
         self.whisper_model = None
+        self.current_model_name = None
         self.diarization_model = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model_loaded = False
+        self.diarization_loaded = False
         self.current_task_id = None
         self._cancelled = False
     
-    def load_models(self):
-        """載入模型（延遲載入）"""
-        if self.model_loaded:
+    def load_whisper_model(self, model_name: str):
+        """載入 Whisper 模型（確保只有一個模型實例）"""
+        if self.whisper_model is not None and self.current_model_name == model_name:
+            # 模型已載入且相同，無需重新載入
             return
-        
-        print(f"正在載入 Whisper 模型... (設備: {self.device})")
+
+        # 釋放舊模型
+        if self.whisper_model is not None:
+            print(f"釋放舊模型: {self.current_model_name}")
+            del self.whisper_model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        # 載入新模型
+        print(f"正在載入 Whisper 模型: {model_name} (設備: {self.device})")
         self.whisper_model = WhisperModel(
-            "k1nto/Belle-whisper-large-v3-zh-punct-ct2",
+            model_name,
             device=self.device,
-            compute_type="float16"
+            compute_type="float16" if "int8" not in model_name.lower() else "int8"
         )
-        print("Whisper 模型載入完成")
-        
-        # 載入語者分離模型
+        self.current_model_name = model_name
+        print(f"Whisper 模型載入完成: {model_name}")
+
+    def load_diarization_model(self):
+        """載入語者分離模型（延遲載入）"""
+        if self.diarization_loaded:
+            return
+
         print("正在載入語者分離模型...")
         diarization_model_id = "pyannote/speaker-diarization-community-1"
         hf_token = os.getenv("HUGGINGFACE_TOKEN")
         self.diarization_model = Pipeline.from_pretrained(
-            diarization_model_id, 
+            diarization_model_id,
             token=hf_token
         )
         self.diarization_model.to(torch.device(self.device))
         print("語者分離模型載入完成")
-        
-        self.model_loaded = True
+        self.diarization_loaded = True
     
     def check_cancelled(self, task_id: str) -> bool:
         """檢查任務是否被取消"""
@@ -156,7 +172,10 @@ class TaskProcessor:
         audio_path: str,
         enable_diarization: bool = True,
         start_time: Optional[float] = None,
-        end_time: Optional[float] = None
+        end_time: Optional[float] = None,
+        language: Optional[str] = None,
+        task: str = 'transcribe',
+        model: str = 'XA9/Belle-faster-whisper-large-v3-zh-punct'
     ):
         """
         處理轉錄任務（同步版本，在後台線程中運行）
@@ -167,21 +186,33 @@ class TaskProcessor:
             enable_diarization: 是否啟用語者分離
             start_time: 開始時間（秒）
             end_time: 結束時間（秒）
+            language: 語言代碼（如 "zh", "en"）
+            task: 任務類型（"transcribe" 或 "translate"）
+            model: Whisper 模型名稱
         """
         try:
             # 檢查是否被取消
             if self.check_cancelled(task_id):
                 return
-            
-            # 載入模型
-            if not self.model_loaded:
+
+            # 載入 Whisper 模型
+            db_manager.update_task_status(
+                task_id,
+                'processing',
+                progress=0.0,
+                current_stage='載入 Whisper 模型'
+            )
+            self.load_whisper_model(model)
+
+            # 載入語者分離模型（如果需要）
+            if enable_diarization:
                 db_manager.update_task_status(
-                    task_id, 
-                    'processing', 
-                    progress=0.0, 
-                    current_stage='載入模型'
+                    task_id,
+                    'processing',
+                    progress=3.0,
+                    current_stage='載入語者分離模型'
                 )
-                self.load_models()
+                self.load_diarization_model()
             
             # 檢查是否被取消
             if self.check_cancelled(task_id):
@@ -216,8 +247,8 @@ class TaskProcessor:
             
             segments, info = self.whisper_model.transcribe(
                 audio=str(converted_audio_path),
-                language="zh",
-                task="transcribe",
+                language=language,
+                task=task,
                 log_progress=True,
             )
             

@@ -14,7 +14,10 @@ export const api = {
     file: File,
     enableDiarization: boolean = true,
     startTime?: number,
-    endTime?: number
+    endTime?: number,
+    language?: string,
+    task?: string,
+    model?: string
   ): Promise<TaskCreateResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -22,6 +25,9 @@ export const api = {
     const params: any = { enable_diarization: enableDiarization };
     if (startTime !== undefined) params.start_time = startTime;
     if (endTime !== undefined) params.end_time = endTime;
+    if (language) params.language = language;
+    if (task) params.task = task;
+    if (model) params.model = model;
 
     const response = await axios.post<TaskCreateResponse>(
       `${API_BASE_URL}/tasks`,

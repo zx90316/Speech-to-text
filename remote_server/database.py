@@ -52,6 +52,9 @@ class DatabaseManager:
                 enable_diarization BOOLEAN DEFAULT 1,
                 start_time REAL,
                 end_time REAL,
+                language TEXT,
+                task TEXT DEFAULT 'transcribe',
+                model TEXT DEFAULT 'XA9/Belle-faster-whisper-large-v3-zh-punct',
                 queue_position INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL,
                 started_at TEXT,
@@ -64,7 +67,7 @@ class DatabaseManager:
 
         # 遷移：檢查並添加新欄位（如果表已存在但沒有這些欄位）
         try:
-            # 檢查 start_time 欄位是否存在
+            # 檢查欄位是否存在
             cursor.execute("PRAGMA table_info(tasks)")
             columns = [row[1] for row in cursor.fetchall()]
 
@@ -75,6 +78,18 @@ class DatabaseManager:
             if 'end_time' not in columns:
                 cursor.execute("ALTER TABLE tasks ADD COLUMN end_time REAL")
                 print("已添加 end_time 欄位")
+
+            if 'language' not in columns:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN language TEXT")
+                print("已添加 language 欄位")
+
+            if 'task' not in columns:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN task TEXT DEFAULT 'transcribe'")
+                print("已添加 task 欄位")
+
+            if 'model' not in columns:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN model TEXT DEFAULT 'XA9/Belle-faster-whisper-large-v3-zh-punct'")
+                print("已添加 model 欄位")
         except Exception as e:
             print(f"資料庫遷移警告: {e}")
 
@@ -99,7 +114,10 @@ class DatabaseManager:
         filename: str,
         enable_diarization: bool = True,
         start_time: Optional[float] = None,
-        end_time: Optional[float] = None
+        end_time: Optional[float] = None,
+        language: Optional[str] = None,
+        task: str = 'transcribe',
+        model: str = 'XA9/Belle-faster-whisper-large-v3-zh-punct'
     ) -> Dict[str, Any]:
         """創建新任務"""
         conn = self.get_connection()
@@ -110,10 +128,10 @@ class DatabaseManager:
         cursor.execute("""
             INSERT INTO tasks (
                 task_id, client_ip, filename, status,
-                enable_diarization, start_time, end_time, created_at
+                enable_diarization, start_time, end_time, language, task, model, created_at
             )
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
-        """, (task_id, client_ip, filename, enable_diarization, start_time, end_time, created_at))
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+        """, (task_id, client_ip, filename, enable_diarization, start_time, end_time, language, task, model, created_at))
         
         conn.commit()
         conn.close()
