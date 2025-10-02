@@ -1,0 +1,319 @@
+/* 預處理任務歷史樣式 */
+
+.task-history {
+  background: var(--surface);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+}
+
+/* 標題區域 */
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid var(--border);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-left h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.task-count {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.btn-refresh {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+
+.btn-refresh:hover {
+  background: var(--hover);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.btn-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 載入和空狀態 */
+.history-loading,
+.history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1rem;
+  color: var(--text-secondary);
+  gap: 1rem;
+}
+
+.history-loading .spin,
+.history-empty svg {
+  color: var(--text-dim);
+}
+
+/* 任務列表 */
+.history-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+  max-height: 600px;
+  overflow-y: auto;
+  padding: 0.25rem;
+}
+
+.history-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.history-list::-webkit-scrollbar-track {
+  background: var(--bg);
+  border-radius: 4px;
+}
+
+.history-list::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.history-list::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* 任務卡片 */
+.history-item {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.history-item:hover {
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.15);
+  transform: translateY(-2px);
+}
+
+/* 狀態樣式 */
+.history-item.status-completed {
+  border-left: 3px solid var(--success);
+}
+
+.history-item.status-processing {
+  border-left: 3px solid var(--primary);
+}
+
+.history-item.status-failed,
+.history-item.status-canceled {
+  border-left: 3px solid var(--error);
+}
+
+.history-item.status-pending {
+  border-left: 3px solid var(--warning);
+}
+
+/* 任務頭部 */
+.item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.item-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.status-icon {
+  flex-shrink: 0;
+}
+
+.status-icon.success {
+  color: var(--success);
+}
+
+.status-icon.error {
+  color: var(--error);
+}
+
+.status-icon.processing {
+  color: var(--primary);
+}
+
+.status-icon.pending {
+  color: var(--warning);
+}
+
+.status-text {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.progress-badge {
+  background: var(--primary);
+  color: white;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.item-time {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* 檔案名稱 */
+.item-filename {
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9375rem;
+}
+
+/* 當前階段 */
+.item-stage {
+  font-size: 0.8125rem;
+  color: var(--primary);
+  background: rgba(99, 102, 241, 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+}
+
+/* 錯誤訊息 */
+.item-error {
+  font-size: 0.8125rem;
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.1);
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+  border-left: 2px solid var(--error);
+}
+
+/* 操作按鈕 */
+.item-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.item-actions button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.item-actions button:hover {
+  background: var(--hover);
+}
+
+.item-actions .btn-download {
+  background: var(--success);
+  color: white;
+  border-color: var(--success);
+}
+
+.item-actions .btn-download:hover {
+  background: #059669;
+  border-color: #059669;
+}
+
+.item-actions .btn-delete {
+  background: transparent;
+  color: var(--error);
+  border-color: var(--error);
+  max-width: 40px;
+  padding: 0.5rem;
+}
+
+.item-actions .btn-delete:hover {
+  background: var(--error);
+  color: white;
+}
+
+/* 動畫 */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* 響應式設計 */
+@media (max-width: 768px) {
+  .history-list {
+    grid-template-columns: 1fr;
+    max-height: 500px;
+  }
+
+  .item-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .item-time {
+    font-size: 0.6875rem;
+  }
+}
+
+@media (min-width: 1200px) {
+  .history-list {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}

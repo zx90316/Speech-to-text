@@ -17,6 +17,8 @@ import uvicorn
 
 from database import db_manager
 from task_processor import task_processor
+from audio_preprocessor import audio_preprocessor, PreprocessConfig
+from preprocess_processor import preprocess_processor
 
 
 @asynccontextmanager
@@ -24,8 +26,10 @@ async def lifespan(app: FastAPI):
     """應用生命週期管理"""
     # Startup
     asyncio.create_task(process_queue())
+    asyncio.create_task(process_preprocess_queue())
     print("=" * 60)
     print("Whisper 語音轉文字 API 服務已啟動")
+    print("音訊預處理服務已啟動")
     print("=" * 60)
     yield
     # Shutdown (if needed)
@@ -51,12 +55,18 @@ app.add_middleware(
 # 創建必要的資料夾
 RESULT_DIR = Path(__file__).parent / "result"
 UPLOAD_DIR = Path(__file__).parent / "uploads"
+PREPROCESS_DIR = Path(__file__).parent / "preprocessed"
 RESULT_DIR.mkdir(exist_ok=True)
 UPLOAD_DIR.mkdir(exist_ok=True)
+PREPROCESS_DIR.mkdir(exist_ok=True)
 
 # 任務佇列
 task_queue = asyncio.Queue()
 processing = False
+
+# 預處理任務佇列
+preprocess_queue = asyncio.Queue()
+preprocess_processing = False
 
 
 def get_client_ip(request: Request) -> str:
@@ -73,17 +83,17 @@ async def process_queue():
     while True:
         task_id = await task_queue.get()
         processing = True
-        
+
         try:
             task = db_manager.get_task(task_id)
             if not task or task['status'] == 'canceled':
                 task_queue.task_done()
                 processing = False
                 continue
-            
+
             # 獲取任務檔案路徑
             upload_path = UPLOAD_DIR / task_id / task['filename']
-            
+
             # 在後台線程中執行處理，避免阻塞事件循環
             await asyncio.to_thread(
                 task_processor.process_task_sync,
@@ -96,16 +106,36 @@ async def process_queue():
                 task=task.get('task', 'transcribe'),
                 model=task.get('model', 'XA9/Belle-faster-whisper-large-v3-zh-punct')
             )
-            
+
         except Exception as e:
             print(f"處理任務 {task_id} 時發生錯誤: {e}")
             import traceback
             traceback.print_exc()
             db_manager.update_task_status(task_id, 'failed', error_message=str(e))
-        
+
         finally:
             task_queue.task_done()
             processing = False
+
+
+async def process_preprocess_queue():
+    """處理預處理任務佇列"""
+    global preprocess_processing
+    while True:
+        preprocess_id = await preprocess_queue.get()
+        preprocess_processing = True
+
+        try:
+            await preprocess_processor.process_task(preprocess_id)
+        except Exception as e:
+            print(f"處理預處理任務 {preprocess_id} 時發生錯誤: {e}")
+            import traceback
+            traceback.print_exc()
+            db_manager.update_preprocess_status(preprocess_id, 'failed', error_message=str(e))
+
+        finally:
+            preprocess_queue.task_done()
+            preprocess_processing = False
 
 
 @app.get("/")
@@ -497,6 +527,293 @@ def verify_admin_token(token: str = Query(..., description="管理者 Token")):
     if token != admin_token:
         raise HTTPException(status_code=403, detail="無效的管理者權限")
     return True
+
+
+@app.post("/api/preprocess", summary="提交音訊預處理任務")
+async def preprocess_audio(
+    request: Request,
+    file: UploadFile = File(..., description="音訊檔案"),
+    config: str = Query("{}", description="預處理配置 JSON")
+):
+    """
+    提交音訊預處理任務（異步處理）
+
+    - **file**: 音訊檔案
+    - **config**: 預處理配置（JSON 格式）
+
+    返回 preprocess_id，可使用 /api/preprocess/{id}/stream 監控進度
+    """
+    import json
+
+    # 解析配置
+    try:
+        config_dict = json.loads(config) if config else {}
+        preprocess_config = PreprocessConfig.from_dict(config_dict)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"配置格式錯誤: {str(e)}")
+
+    # 生成預處理 ID
+    preprocess_id = str(uuid.uuid4())
+
+    # 創建預處理資料夾
+    preprocess_dir = PREPROCESS_DIR / preprocess_id
+    preprocess_dir.mkdir(parents=True, exist_ok=True)
+
+    # 保存原始檔案
+    original_path = preprocess_dir / f"original_{file.filename}"
+    content = await file.read()
+    with open(original_path, 'wb') as f:
+        f.write(content)
+
+    # 預處理檔案路徑
+    processed_path = preprocess_dir / f"processed_{file.filename}"
+
+    # 創建資料庫記錄
+    client_ip = get_client_ip(request)
+    db_manager.create_preprocess_task(
+        preprocess_id=preprocess_id,
+        client_ip=client_ip,
+        filename=file.filename,
+        config_json=json.dumps(config_dict, ensure_ascii=False),
+        original_path=str(original_path),
+        processed_path=str(processed_path)
+    )
+
+    # 加入處理佇列
+    await preprocess_queue.put(preprocess_id)
+
+    return {
+        "preprocess_id": preprocess_id,
+        "status": "pending",
+        "message": "預處理任務已提交，請使用 /api/preprocess/{id}/stream 監控進度"
+    }
+
+
+@app.get("/api/preprocess/{preprocess_id}", summary="查詢預處理任務狀態")
+async def get_preprocess_task(preprocess_id: str):
+    """
+    查詢預處理任務狀態和結果
+
+    - **preprocess_id**: 預處理任務 ID
+    """
+    task = db_manager.get_preprocess_task(preprocess_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="找不到該預處理任務")
+
+    return task
+
+
+@app.get("/api/preprocess/{preprocess_id}/stream", summary="即時預處理進度（SSE）")
+async def stream_preprocess_progress(preprocess_id: str):
+    """
+    使用 Server-Sent Events (SSE) 即時推送預處理進度
+
+    - **preprocess_id**: 預處理任務 ID
+    """
+    async def event_generator():
+        import asyncio
+
+        # 檢查任務是否存在
+        task = db_manager.get_preprocess_task(preprocess_id)
+        if not task:
+            yield f"data: {json.dumps({'error': '找不到該預處理任務'})}\n\n"
+            return
+
+        last_progress = -1
+        last_status = None
+
+        while True:
+            task = db_manager.get_preprocess_task(preprocess_id)
+
+            if not task:
+                break
+
+            # 只在狀態或進度有變化時發送更新
+            if task['status'] != last_status or task['progress'] != last_progress:
+                last_status = task['status']
+                last_progress = task['progress']
+
+                event_data = {
+                    'status': task['status'],
+                    'progress': task['progress'],
+                    'current_stage': task.get('current_stage'),
+                    'error_message': task.get('error_message')
+                }
+
+                # 如果完成，附加結果資訊
+                if task['status'] == 'completed':
+                    event_data['original_info'] = task.get('original_info')
+                    event_data['processed_info'] = task.get('processed_info')
+                    event_data['filters_applied'] = task.get('filters_applied')
+
+                yield f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+
+            # 如果任務已結束，停止推送
+            if task['status'] in ('completed', 'failed', 'canceled'):
+                break
+
+            await asyncio.sleep(0.5)
+
+    import json
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+
+
+@app.get("/api/preprocess/{preprocess_id}/download", summary="下載預處理音訊")
+async def download_preprocessed_audio(
+    preprocess_id: str,
+    file_type: str = Query("processed", description="檔案類型: original 或 processed")
+):
+    """
+    下載預處理的音訊檔案
+
+    - **preprocess_id**: 預處理 ID
+    - **file_type**: original (原始檔案) 或 processed (處理後檔案)
+    """
+    preprocess_dir = PREPROCESS_DIR / preprocess_id
+    if not preprocess_dir.exists():
+        raise HTTPException(status_code=404, detail="找不到該預處理任務")
+
+    # 尋找檔案
+    if file_type == "original":
+        files = list(preprocess_dir.glob("original_*"))
+    elif file_type == "processed":
+        files = list(preprocess_dir.glob("processed_*"))
+    else:
+        raise HTTPException(status_code=400, detail="file_type 必須是 original 或 processed")
+
+    if not files:
+        raise HTTPException(status_code=404, detail="找不到檔案")
+
+    file_path = files[0]
+    return FileResponse(
+        path=file_path,
+        filename=file_path.name.replace("original_", "").replace("processed_", ""),
+        media_type="audio/wav"
+    )
+
+
+@app.get("/api/preprocess/{preprocess_id}/info", summary="獲取預處理資訊")
+async def get_preprocess_info(preprocess_id: str):
+    """
+    獲取預處理音訊的詳細資訊
+
+    - **preprocess_id**: 預處理 ID
+    """
+    preprocess_dir = PREPROCESS_DIR / preprocess_id
+    if not preprocess_dir.exists():
+        raise HTTPException(status_code=404, detail="找不到該預處理任務")
+
+    # 尋找檔案
+    original_files = list(preprocess_dir.glob("original_*"))
+    processed_files = list(preprocess_dir.glob("processed_*"))
+
+    if not original_files or not processed_files:
+        raise HTTPException(status_code=404, detail="預處理檔案不完整")
+
+    # 獲取音訊資訊
+    original_info = await asyncio.to_thread(
+        audio_preprocessor.get_audio_info,
+        str(original_files[0])
+    )
+    processed_info = await asyncio.to_thread(
+        audio_preprocessor.get_audio_info,
+        str(processed_files[0])
+    )
+
+    return {
+        "preprocess_id": preprocess_id,
+        "original_info": original_info,
+        "processed_info": processed_info,
+        "original_file": original_files[0].name,
+        "processed_file": processed_files[0].name
+    }
+
+
+@app.get("/api/my-preprocess-tasks", summary="查詢我的預處理任務歷史")
+async def get_my_preprocess_tasks(
+    request: Request,
+    limit: int = Query(50, ge=1, le=100, description="返回的任務數量上限")
+):
+    """
+    根據 IP 地址查詢該客戶端提交過的所有預處理任務
+
+    - **limit**: 返回的任務數量（預設 50，最多 100）
+    """
+    client_ip = get_client_ip(request)
+    tasks = db_manager.get_preprocess_tasks_by_ip(client_ip, limit=limit)
+
+    # 簡化返回的資訊
+    simplified_tasks = []
+    for task in tasks:
+        simplified_tasks.append({
+            "preprocess_id": task['preprocess_id'],
+            "filename": task['filename'],
+            "status": task['status'],
+            "progress": task['progress'],
+            "current_stage": task.get('current_stage'),
+            "created_at": task['created_at'],
+            "completed_at": task.get('completed_at'),
+            "error_message": task.get('error_message')
+        })
+
+    return {
+        "tasks": simplified_tasks,
+        "total": len(simplified_tasks)
+    }
+
+
+@app.delete("/api/preprocess/{preprocess_id}", summary="取消/刪除預處理任務")
+async def delete_preprocess(
+    preprocess_id: str,
+    permanent: bool = Query(False, description="是否永久刪除（包含資料庫記錄）")
+):
+    """
+    取消或刪除預處理任務
+
+    - **preprocess_id**: 預處理 ID
+    - **permanent**: 是否永久刪除（預設為取消任務）
+    """
+    import shutil
+
+    task = db_manager.get_preprocess_task(preprocess_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="找不到該預處理任務")
+
+    # 如果是永久刪除
+    if permanent:
+        preprocess_dir = PREPROCESS_DIR / preprocess_id
+        if preprocess_dir.exists():
+            shutil.rmtree(preprocess_dir, ignore_errors=True)
+
+        db_manager.delete_preprocess_task(preprocess_id)
+
+        return {
+            "preprocess_id": preprocess_id,
+            "message": "預處理任務已永久刪除"
+        }
+
+    # 否則只是取消任務
+    if task['status'] in ('completed', 'failed', 'canceled'):
+        return {
+            "preprocess_id": preprocess_id,
+            "message": f"任務已處於 {task['status']} 狀態，無需取消"
+        }
+
+    success = db_manager.cancel_preprocess_task(preprocess_id)
+    if success:
+        return {
+            "preprocess_id": preprocess_id,
+            "message": "預處理任務已取消"
+        }
+    else:
+        raise HTTPException(status_code=400, detail="無法取消該任務")
 
 
 @app.get("/api/admin/tasks", summary="管理者 - 獲取所有任務")

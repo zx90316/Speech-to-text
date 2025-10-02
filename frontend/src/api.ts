@@ -106,6 +106,95 @@ export const api = {
    */
   createProgressStream(taskId: string): EventSource {
     return new EventSource(`${API_BASE_URL}/tasks/${taskId}/stream`);
+  },
+
+  /**
+   * 音訊預處理
+   */
+  /**
+   * 提交音訊預處理任務（異步）
+   */
+  async preprocessAudio(
+    file: File,
+    config: any
+  ): Promise<{
+    preprocess_id: string;
+    status: string;
+    message: string;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await axios.post(
+      `${API_BASE_URL}/preprocess`,
+      formData,
+      {
+        params: {
+          config: JSON.stringify(config)
+        },
+        headers: { 'Content-Type': 'multipart/form-data' }
+      }
+    );
+
+    return response.data;
+  },
+
+  /**
+   * 查詢預處理任務狀態
+   */
+  async getPreprocessTask(preprocessId: string): Promise<any> {
+    const response = await axios.get(`${API_BASE_URL}/preprocess/${preprocessId}`);
+    return response.data;
+  },
+
+  /**
+   * 連接預處理任務進度 SSE 串流
+   */
+  connectPreprocessStream(preprocessId: string): EventSource {
+    return new EventSource(`${API_BASE_URL}/preprocess/${preprocessId}/stream`);
+  },
+
+  /**
+   * 下載預處理音訊
+   */
+  downloadPreprocessedAudio(preprocessId: string, fileType: 'original' | 'processed' = 'processed'): string {
+    return `${API_BASE_URL}/preprocess/${preprocessId}/download?file_type=${fileType}`;
+  },
+
+  /**
+   * 獲取預處理資訊（已棄用，使用 getPreprocessTask）
+   */
+  async getPreprocessInfo(preprocessId: string): Promise<{
+    preprocess_id: string;
+    original_info: any;
+    processed_info: any;
+    original_file: string;
+    processed_file: string;
+  }> {
+    const response = await axios.get(`${API_BASE_URL}/preprocess/${preprocessId}/info`);
+    return response.data;
+  },
+
+  /**
+   * 取消/刪除預處理任務
+   */
+  async deletePreprocess(preprocessId: string, permanent: boolean = false): Promise<void> {
+    await axios.delete(`${API_BASE_URL}/preprocess/${preprocessId}`, {
+      params: { permanent }
+    });
+  },
+
+  /**
+   * 獲取我的預處理任務歷史
+   */
+  async getMyPreprocessTasks(limit: number = 50): Promise<{
+    tasks: any[];
+    total: number;
+  }> {
+    const response = await axios.get(`${API_BASE_URL}/my-preprocess-tasks`, {
+      params: { limit }
+    });
+    return response.data;
   }
 };
 

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(.venvScriptspython.exe remote_serverapi_preprocess_only.py)",
+      "Bash(venv/Scripts/python.exe remote_server/api_preprocess_only.py:*)",
+      "Bash(.venv/Scripts/python.exe remote_server/api_preprocess_only.py:*)",
+      "Bash(curl:*)",
+      "Bash(.venv/Scripts/python.exe test_api_preprocess.py:*)",
+      "Bash(.venv/Scripts/python.exe test_echo_removal.py:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

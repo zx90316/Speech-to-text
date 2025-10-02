@@ -42,7 +42,7 @@ body {
 .logo h1 { font-size: 1.75rem; }
 .subtitle { font-size: 0.875rem; color: var(--text-dim); }
 .header-right { display: flex; align-items: center; gap: 1rem; }
-.admin-link-btn {
+.admin-link-btn, .preprocess-link-btn {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -55,10 +55,19 @@ body {
   transition: all 0.2s;
   font-size: 0.875rem;
 }
-.admin-link-btn:hover {
+.admin-link-btn:hover, .preprocess-link-btn:hover {
   background: var(--primary);
   border-color: var(--primary);
   color: white;
+}
+
+.preprocess-link-btn {
+  background: var(--bg);
+}
+
+.preprocess-link-btn:hover {
+  background: var(--success);
+  border-color: var(--success);
 }
 
 /* Stats */
@@ -1105,6 +1114,12 @@ body {
 
 .pagination span {
   color: var(--text-dim);
+}
+
+/* Preprocess Page */
+.preprocess-page {
+  margin: 2rem;
+  padding: 0 2rem;
 }
 
 /* Responsive */

@@ -7,11 +7,12 @@ import { TaskProgress } from '../components/TaskProgress';
 import { TaskHistory } from '../components/TaskHistory';
 import { ServiceStats } from '../components/ServiceStats';
 import { AdminPage } from '../pages/AdminPage';
+import { AudioPreprocessor } from '../components/AudioPreprocessor';
 import { api } from '../api';
 import { addTaskId } from '../utils/taskStorage';
-import { Mic, Shield, Home } from 'lucide-react';
+import { Mic, Shield, Home, Settings } from 'lucide-react';
 
-type ViewMode = 'main' | 'admin';
+type ViewMode = 'main' | 'admin' | 'preprocess';
 
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('main');
@@ -72,6 +73,28 @@ function App() {
     );
   }
 
+  if (viewMode === 'preprocess') {
+    return (
+      <div className="app">
+        <nav className="app-nav">
+          <button className="nav-btn" onClick={() => setViewMode('main')}>
+            <Home size={20} />
+            返回主頁
+          </button>
+        </nav>
+        <div className="preprocess-page">
+          <AudioPreprocessor
+            onPreprocessComplete={(preprocessId, processedFile) => {
+              // 預處理完成後，可以選擇用處理後的檔案進行轉錄
+              console.log('預處理完成:', preprocessId);
+              // 這裡可以自動切換到主頁並使用處理後的檔案
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -85,6 +108,10 @@ function App() {
           </div>
           <div className="header-right">
             <ServiceStats />
+            <button className="preprocess-link-btn" onClick={() => setViewMode('preprocess')}>
+              <Settings size={20} />
+              預處理
+            </button>
             <button className="admin-link-btn" onClick={() => setViewMode('admin')}>
               <Shield size={20} />
               管理

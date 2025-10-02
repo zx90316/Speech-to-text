@@ -104,6 +104,39 @@ class DatabaseManager:
             CREATE INDEX IF NOT EXISTS idx_created_at ON tasks(created_at DESC)
         """)
 
+        # 創建預處理任務表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS preprocess_tasks (
+                preprocess_id TEXT PRIMARY KEY,
+                client_ip TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                status TEXT NOT NULL,
+                progress REAL DEFAULT 0.0,
+                current_stage TEXT,
+                config_json TEXT,
+                original_path TEXT,
+                processed_path TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                error_message TEXT,
+                original_info TEXT,
+                processed_info TEXT,
+                filters_applied TEXT
+            )
+        """)
+
+        # 創建預處理任務索引
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_preprocess_client_ip ON preprocess_tasks(client_ip)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_preprocess_status ON preprocess_tasks(status)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_preprocess_created_at ON preprocess_tasks(created_at DESC)
+        """)
+
         conn.commit()
         conn.close()
     
@@ -424,6 +457,200 @@ class DatabaseManager:
         conn.close()
 
         return deleted_count
+
+    # ===== 預處理任務方法 =====
+
+    def create_preprocess_task(
+        self,
+        preprocess_id: str,
+        client_ip: str,
+        filename: str,
+        config_json: str,
+        original_path: str,
+        processed_path: str
+    ) -> Dict[str, Any]:
+        """創建預處理任務"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        created_at = datetime.now().isoformat()
+
+        cursor.execute("""
+            INSERT INTO preprocess_tasks (
+                preprocess_id, client_ip, filename, status,
+                config_json, original_path, processed_path, created_at
+            )
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
+        """, (preprocess_id, client_ip, filename, config_json, original_path, processed_path, created_at))
+
+        conn.commit()
+        conn.close()
+
+        return self.get_preprocess_task(preprocess_id)
+
+    def get_preprocess_task(self, preprocess_id: str) -> Optional[Dict[str, Any]]:
+        """獲取預處理任務詳情"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM preprocess_tasks WHERE preprocess_id = ?", (preprocess_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if row:
+            task = dict(row)
+            # 解析 JSON 欄位
+            if task.get('config_json'):
+                try:
+                    task['config'] = json.loads(task['config_json'])
+                except:
+                    task['config'] = {}
+            if task.get('original_info'):
+                try:
+                    task['original_info'] = json.loads(task['original_info'])
+                except:
+                    pass
+            if task.get('processed_info'):
+                try:
+                    task['processed_info'] = json.loads(task['processed_info'])
+                except:
+                    pass
+            if task.get('filters_applied'):
+                try:
+                    task['filters_applied'] = json.loads(task['filters_applied'])
+                except:
+                    pass
+            return task
+        return None
+
+    def update_preprocess_status(
+        self,
+        preprocess_id: str,
+        status: str,
+        progress: Optional[float] = None,
+        current_stage: Optional[str] = None,
+        error_message: Optional[str] = None
+    ):
+        """更新預處理任務狀態"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        updates = ["status = ?"]
+        params = [status]
+
+        if progress is not None:
+            updates.append("progress = ?")
+            params.append(progress)
+
+        if current_stage is not None:
+            updates.append("current_stage = ?")
+            params.append(current_stage)
+
+        if error_message is not None:
+            updates.append("error_message = ?")
+            params.append(error_message)
+
+        # 更新時間戳記
+        if status == "processing":
+            task = self.get_preprocess_task(preprocess_id)
+            if task and not task.get('started_at'):
+                updates.append("started_at = ?")
+                params.append(datetime.now().isoformat())
+        elif status in ("completed", "failed", "canceled"):
+            updates.append("completed_at = ?")
+            params.append(datetime.now().isoformat())
+
+        params.append(preprocess_id)
+
+        query = f"UPDATE preprocess_tasks SET {', '.join(updates)} WHERE preprocess_id = ?"
+        cursor.execute(query, params)
+        conn.commit()
+        conn.close()
+
+    def update_preprocess_result(
+        self,
+        preprocess_id: str,
+        original_info: Dict,
+        processed_info: Dict,
+        filters_applied: List[str]
+    ):
+        """更新預處理結果"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE preprocess_tasks
+            SET original_info = ?, processed_info = ?, filters_applied = ?
+            WHERE preprocess_id = ?
+        """, (
+            json.dumps(original_info, ensure_ascii=False),
+            json.dumps(processed_info, ensure_ascii=False),
+            json.dumps(filters_applied, ensure_ascii=False),
+            preprocess_id
+        ))
+
+        conn.commit()
+        conn.close()
+
+    def get_preprocess_tasks_by_ip(self, client_ip: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """根據 IP 獲取預處理任務列表"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT * FROM preprocess_tasks
+            WHERE client_ip = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (client_ip, limit))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        tasks = []
+        for row in rows:
+            task = dict(row)
+            if task.get('config_json'):
+                try:
+                    task['config'] = json.loads(task['config_json'])
+                except:
+                    task['config'] = {}
+            if task.get('filters_applied'):
+                try:
+                    task['filters_applied'] = json.loads(task['filters_applied'])
+                except:
+                    pass
+            tasks.append(task)
+
+        return tasks
+
+    def delete_preprocess_task(self, preprocess_id: str) -> bool:
+        """刪除預處理任務記錄"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("DELETE FROM preprocess_tasks WHERE preprocess_id = ?", (preprocess_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        except Exception as e:
+            print(f"刪除預處理任務記錄失敗: {e}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    def cancel_preprocess_task(self, preprocess_id: str) -> bool:
+        """取消預處理任務"""
+        task = self.get_preprocess_task(preprocess_id)
+        if not task:
+            return False
+
+        if task['status'] in ('completed', 'failed', 'canceled'):
+            return False
+
+        self.update_preprocess_status(preprocess_id, 'canceled')
+        return True
 
 
 # 全局資料庫實例

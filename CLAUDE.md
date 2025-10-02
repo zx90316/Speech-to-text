@@ -4,10 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Whisper Speech-to-Text API service with a modern React frontend. The project consists of:
+This is a Whisper Speech-to-Text API service with a modern React frontend and audio preprocessing capabilities. The project consists of:
 
 - **Backend (remote_server/)**: FastAPI-based service for speech-to-text processing using Faster-Whisper and Pyannote
-- **Frontend (frontend/)**: React + TypeScript + Vite application for uploading audio and monitoring progress
+- **Audio Preprocessing (remote_server/audio_preprocessor.py)**: FFmpeg-based audio enhancement engine with noise reduction, normalization, vocal enhancement, and more
+- **Frontend (frontend/)**: React + TypeScript + Vite application for uploading audio, preprocessing, and monitoring progress
 
 ## Commands
 
@@ -61,9 +62,10 @@ Reference [.env.txt](.env.txt) for the template.
 
 ### Backend Architecture (remote_server/)
 
-- **api.py**: FastAPI main application with all API endpoints
+- **api.py**: FastAPI main application with all API endpoints (transcription + preprocessing)
 - **database.py**: SQLite database management for task tracking
 - **task_processor.py**: Core speech processing logic using Faster-Whisper and Pyannote
+- **audio_preprocessor.py**: Audio preprocessing engine with FFmpeg-based filters
 - **whisper_api.py**: Additional Whisper-related utilities
 
 The backend uses an asynchronous task queue system where:
@@ -72,17 +74,24 @@ The backend uses an asynchronous task queue system where:
 3. Processing happens asynchronously with real-time progress via SSE
 4. Results are stored in `result/{task_id}/`
 
+Audio preprocessing flow:
+1. Upload audio via `/api/preprocess` with configuration
+2. Files stored in `preprocessed/{preprocess_id}/`
+3. Processing applies FFmpeg filters (denoise, normalize, EQ, etc.)
+4. Download processed audio or use for transcription
+
 ### Frontend Architecture (frontend/src/)
 
-- **ui/App.tsx**: Main application component with view mode switching (main/admin)
+- **ui/App.tsx**: Main application component with view mode switching (main/admin/preprocess)
 - **components/**: Reusable React components
   - **UploadSection.tsx**: File upload with drag-and-drop, audio player for time range selection
   - **TaskProgress.tsx**: Real-time progress display with SSE, partial result preview
   - **TaskHistory.tsx**: Historical task management with batch operations
   - **ServiceStats.tsx**: Service statistics display
   - **AudioPlayer.tsx**: Audio playback with time range selection
+  - **AudioPreprocessor.tsx**: Audio preprocessing interface with parameter controls and A/B comparison
 - **pages/AdminPage.tsx**: Admin interface for viewing all tasks and system stats
-- **api.ts**: Axios-based API client
+- **api.ts**: Axios-based API client (includes preprocessing methods)
 - **types.ts**: TypeScript type definitions
 - **utils/taskStorage.ts**: LocalStorage management for task IDs
 - **styles/main.css**: Global styles
@@ -91,12 +100,22 @@ The backend uses an asynchronous task queue system where:
 
 1. **Real-time Progress**: Uses Server-Sent Events (SSE) for live progress updates with partial results
 2. **Speaker Diarization**: Optional multi-speaker recognition using Pyannote
-3. **Task Management**: Complete lifecycle management with SQLite persistence
-4. **File Handling**: Supports MP3, WAV, M4A, FLAC formats
-5. **Time Range Selection**: Can process specific segments of audio files
-6. **Multiple Models**: Support for different Whisper models and languages
-7. **Admin Dashboard**: Token-based admin interface for system monitoring
-8. **Proxy Configuration**: Vite proxy routes `/api` to backend at `localhost:8000`
+3. **Audio Preprocessing**: FFmpeg-based audio enhancement with 15+ processing options
+   - Noise reduction (FFT denoising)
+   - Volume normalization (peak/LUFS)
+   - Silence removal
+   - Vocal enhancement
+   - Echo removal
+   - EQ (3-band)
+   - Dynamic range compression
+   - Speed/pitch adjustment
+   - A/B audio comparison
+4. **Task Management**: Complete lifecycle management with SQLite persistence
+5. **File Handling**: Supports MP3, WAV, M4A, FLAC formats
+6. **Time Range Selection**: Can process specific segments of audio files
+7. **Multiple Models**: Support for different Whisper models and languages
+8. **Admin Dashboard**: Token-based admin interface for system monitoring
+9. **Proxy Configuration**: Vite proxy routes `/api` to backend at `localhost:8000`
 
 ### Processing Pipeline
 
@@ -119,6 +138,7 @@ SQLite database (`tasks.db`) in [remote_server/database.py](remote_server/databa
 
 ### API Integration Points
 
+#### Transcription APIs
 - **POST /api/tasks**: Submit new transcription tasks with optional parameters (enable_diarization, start_time, end_time, language, task, model)
 - **GET /api/tasks/{id}**: Query task status
 - **GET /api/tasks/{id}/stream**: SSE progress updates with partial results
@@ -127,10 +147,19 @@ SQLite database (`tasks.db`) in [remote_server/database.py](remote_server/databa
 - **POST /api/tasks/batch**: Batch query multiple tasks
 - **GET /api/my-tasks**: Client task history based on IP
 - **GET /api/stats**: Service statistics (queue size, processing count)
+
+#### Preprocessing APIs
+- **POST /api/preprocess**: Submit audio preprocessing task with configuration JSON
+- **GET /api/preprocess/{id}/download**: Download preprocessed audio (original or processed)
+- **GET /api/preprocess/{id}/info**: Get preprocessing details and audio info
+- **DELETE /api/preprocess/{id}**: Delete preprocessing files
+
+#### Admin APIs
 - **GET /api/admin/tasks**: Admin endpoint to view all tasks (requires ADMIN_TOKEN)
 - **GET /api/admin/stats**: Admin system statistics
 
 See full API documentation at `http://localhost:8000/docs` when server is running.
+See preprocessing usage guide at [PREPROCESS_USAGE.md](PREPROCESS_USAGE.md) for detailed examples.
 
 ### Development Notes
 
