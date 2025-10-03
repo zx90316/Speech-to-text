@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { Upload, Settings, Download, Trash2, FileAudio } from 'lucide-react';
 import { api } from '../api';
 import { WaveformPlayer } from './WaveformPlayer';
+import { NativeAudioPlayer } from './NativeAudioPlayer';
 import { PreprocessHistory } from './PreprocessHistory';
 import { addPreprocessTaskId } from '../utils/taskStorage';
 import './AudioPreprocessor.css';
@@ -51,6 +52,8 @@ export const AudioPreprocessor: React.FC<AudioPreprocessorProps> = ({ onPreproce
   const [progress, setProgress] = useState<number>(0);
   const [currentStage, setCurrentStage] = useState<string>('');
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
+  const [isLargeFile, setIsLargeFile] = useState(false); // 標記是否為大文件
+  const [audioDuration, setAudioDuration] = useState<number>(0); // 音頻時長
 
   const [config, setConfig] = useState<PreprocessConfig>({
     enable_denoise: false,
@@ -84,6 +87,23 @@ export const AudioPreprocessor: React.FC<AudioPreprocessorProps> = ({ onPreproce
     setFile(selectedFile);
     setPreprocessId(null);
     setError(null);
+
+    // 檢查文件大小 (超過 10MB 視為大文件)
+    const fileSizeMB = selectedFile.size / (1024 * 1024);
+    setIsLargeFile(fileSizeMB > 10);
+
+    // 獲取音頻時長
+    const audioUrl = URL.createObjectURL(selectedFile);
+    const audio = new Audio(audioUrl);
+    audio.addEventListener('loadedmetadata', () => {
+      setAudioDuration(audio.duration);
+      URL.revokeObjectURL(audioUrl);
+
+      // 如果超過 5 分鐘也視為大文件
+      if (audio.duration > 300) {
+        setIsLargeFile(true);
+      }
+    });
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -490,11 +510,18 @@ export const AudioPreprocessor: React.FC<AudioPreprocessorProps> = ({ onPreproce
         {file && !preprocessId && (
           <div className="preview-content">
             <h3>原始音訊</h3>
-            <WaveformPlayer
-              audioUrl={URL.createObjectURL(file)}
-              title={file.name}
-              color="#6366f1"
-            />
+            {isLargeFile ? (
+              <NativeAudioPlayer
+                audioUrl={URL.createObjectURL(file)}
+                title={file.name}
+              />
+            ) : (
+              <WaveformPlayer
+                audioUrl={URL.createObjectURL(file)}
+                title={file.name}
+                color="#6366f1"
+              />
+            )}
             <p className="preview-hint">點擊「開始預處理」以查看處理後效果</p>
           </div>
         )}
@@ -505,31 +532,36 @@ export const AudioPreprocessor: React.FC<AudioPreprocessorProps> = ({ onPreproce
               {file && (
                 <div className="comparison-item">
                   <h3>原始音訊</h3>
-                  <WaveformPlayer
-                    audioUrl={URL.createObjectURL(file)}
-                    title="原始"
-                    color="#94a3b8"
-                  />
+                  {isLargeFile ? (
+                    <NativeAudioPlayer
+                      audioUrl={URL.createObjectURL(file)}
+                      title="原始"
+                    />
+                  ) : (
+                    <WaveformPlayer
+                      audioUrl={URL.createObjectURL(file)}
+                      title="原始"
+                      color="#94a3b8"
+                    />
+                  )}
                 </div>
               )}
 
               {!file && (
                 <div className="comparison-item">
                   <h3>原始音訊</h3>
-                  <WaveformPlayer
+                  <NativeAudioPlayer
                     audioUrl={api.downloadPreprocessedAudio(preprocessId, 'original')}
                     title="原始"
-                    color="#94a3b8"
                   />
                 </div>
               )}
 
               <div className="comparison-item">
                 <h3>處理後音訊</h3>
-                <WaveformPlayer
+                <NativeAudioPlayer
                   audioUrl={api.downloadPreprocessedAudio(preprocessId, 'processed')}
                   title="處理後"
-                  color="#10b981"
                 />
               </div>
             </div>

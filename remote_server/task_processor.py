@@ -17,6 +17,14 @@ from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline
 from dotenv import load_dotenv
 
+# 嘗試導入 ProgressHook
+try:
+    from pyannote.audio.pipelines.utils.hook import ProgressHook
+    PROGRESS_HOOK_AVAILABLE = True
+except ImportError:
+    PROGRESS_HOOK_AVAILABLE = False
+    print("ProgressHook 不可用，將使用備選進度追蹤方案")
+
 from database import db_manager
 
 # 載入環境變數
@@ -29,6 +37,49 @@ cc = OpenCC('s2twp')
 ffmpeg_path = Path(__file__).parent.parent / "ffmpeg-7.1.1-full_build-shared" / "bin"
 if ffmpeg_path.exists():
     os.environ["PATH"] += os.pathsep + str(ffmpeg_path)
+
+
+class CustomProgressHook:
+    """自訂進度追蹤 Hook"""
+
+    def __init__(self, task_id: str, start_progress: float = 70.0, end_progress: float = 85.0):
+        self.task_id = task_id
+        self.start_progress = start_progress
+        self.end_progress = end_progress
+        self.progress_range = end_progress - start_progress
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+    def __call__(self, step_name: str, step_artefact=None, file=None, total=None, completed=None):
+        """
+        進度回調函數
+        step_name: 當前步驟名稱
+        completed: 已完成數量
+        total: 總數量
+        """
+        if total is not None and completed is not None:
+            # 計算當前步驟的進度
+            step_progress = (completed / total) if total > 0 else 0
+            current_progress = self.start_progress + (step_progress * self.progress_range)
+
+            db_manager.update_task_status(
+                self.task_id,
+                'processing',
+                progress=current_progress,
+                current_stage=f'語者分離: {step_name} ({completed}/{total})'
+            )
+        else:
+            # 無法取得詳細進度，顯示步驟名稱
+            db_manager.update_task_status(
+                self.task_id,
+                'processing',
+                progress=self.start_progress + (self.progress_range * 0.5),
+                current_stage=f'語者分離: {step_name}'
+            )
 
 
 class TaskProcessor:
@@ -48,21 +99,32 @@ class TaskProcessor:
         if self.whisper_model is not None and self.current_model_name == model_name:
             # 模型已載入且相同，無需重新載入
             return
-
-        # 釋放舊模型
-        if self.whisper_model is not None:
-            print(f"釋放舊模型: {self.current_model_name}")
-            del self.whisper_model
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+        
+        # 卸載舊模型
+        self.unload_whisper_model()
 
         # 載入新模型
         print(f"正在載入 Whisper 模型: {model_name} (設備: {self.device})")
+
+        # 自動選擇 compute_type 以優化記憶體使用
+        if self.device == "cuda":
+            if "float32" in model_name.lower():
+                compute_type = "float32"
+            elif "int8" in model_name.lower():
+                compute_type = "int8"
+            else:
+                compute_type = "float16"
+        else:
+            # CPU 使用 int8 以減少 RAM 使用
+            compute_type = "int8"
+
+        print(f"使用 compute_type: {compute_type} 以優化記憶體使用")
+
         self.whisper_model = WhisperModel(
             model_name,
             device=self.device,
-            compute_type="float16" if "int8" not in model_name.lower() else "int8",
-            local_files_only= True
+            compute_type=compute_type,
+            local_files_only=True
         )
         self.current_model_name = model_name
         print(f"Whisper 模型載入完成: {model_name}")
@@ -82,6 +144,37 @@ class TaskProcessor:
         self.diarization_model.to(torch.device(self.device))
         print("語者分離模型載入完成")
         self.diarization_loaded = True
+
+    def unload_diarization_model(self):
+        """卸載語者分離模型以釋放 VRAM"""
+        if not self.diarization_loaded:
+            return
+
+        print("正在卸載語者分離模型以釋放 VRAM...")
+        if self.diarization_model is not None:
+            del self.diarization_model
+            self.diarization_model = None
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        self.diarization_loaded = False
+        print("語者分離模型已卸載")
+
+    def unload_whisper_model(self):
+        """卸載 Whisper 模型以釋放 VRAM"""
+        if self.whisper_model is None:
+            return
+
+        print("正在卸載 Whisper 模型以釋放 VRAM...")
+        del self.whisper_model
+        self.whisper_model = None
+        self.current_model_name = None
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        print("Whisper 模型已卸載")
     
     def check_cancelled(self, task_id: str) -> bool:
         """檢查任務是否被取消"""
@@ -176,7 +269,7 @@ class TaskProcessor:
         end_time: Optional[float] = None,
         language: Optional[str] = None,
         task: str = 'transcribe',
-        model: str = 'XA9/Belle-faster-whisper-large-v3-zh-punct'
+        model: str = 'CWTchen/Belle-whisper-large-v3-zh-punct-ct2-faster-whisper-float32'
     ):
         """
         處理轉錄任務（同步版本，在後台線程中運行）
@@ -205,29 +298,19 @@ class TaskProcessor:
             )
             self.load_whisper_model(model)
 
-            # 載入語者分離模型（如果需要）
-            if enable_diarization:
-                db_manager.update_task_status(
-                    task_id,
-                    'processing',
-                    progress=3.0,
-                    current_stage='載入語者分離模型'
-                )
-                self.load_diarization_model()
-            
             # 檢查是否被取消
             if self.check_cancelled(task_id):
                 return
-            
+
             # 創建結果資料夾
             result_dir = Path(__file__).parent / "result" / task_id
             result_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # 轉換音訊格式
             db_manager.update_task_status(
-                task_id, 
-                'processing', 
-                progress=20.0, 
+                task_id,
+                'processing',
+                progress=20.0,
                 current_stage='轉換音訊格式'
             )
             
@@ -238,6 +321,9 @@ class TaskProcessor:
             if self.check_cancelled(task_id):
                 return
             
+            # 卸載語者分離模型以節省 VRAM
+            self.unload_diarization_model()
+
             # 語音轉文字
             db_manager.update_task_status(
                 task_id, 
@@ -246,10 +332,15 @@ class TaskProcessor:
                 current_stage='語音轉文字 (ASR)'
             )
             
+            # 使用優化參數以避免 OOM
             segments, info = self.whisper_model.transcribe(
                 audio=str(converted_audio_path),
                 language=language,
                 task=task,
+                beam_size=1,  # 減少 beam size 以降低記憶體使用
+                vad_filter=True,  # 啟用 VAD 過濾靜音片段
+                vad_parameters=dict(min_silence_duration_ms=500),  # VAD 參數
+                word_timestamps=False,  # 禁用以避免長音頻記憶體增長
                 log_progress=True,
             )
             
@@ -306,45 +397,75 @@ class TaskProcessor:
             
             # 語者分離（如果啟用）
             final_result = None
-            if enable_diarization and self.diarization_model:
-                db_manager.update_task_status(
-                    task_id, 
-                    'processing', 
-                    progress=70.0, 
-                    current_stage='執行語者分離'
-                )
-                
-                diarization_output = self.diarization_model(str(converted_audio_path))
-                diarization_result = diarization_output.speaker_diarization
-                
-                db_manager.update_task_status(
-                    task_id, 
-                    'processing', 
-                    progress=85.0, 
-                    current_stage='整合語者資訊'
-                )
-                
-                final_result = self.diarize_text(timestamp_texts, diarization_result)
-                
-                # 更新部分結果（包含語者資訊）
-                partial_result = []
-                dialogue_lines = []
-                for segment, spk, sent in final_result:
-                    partial_result.append({
-                        'start': segment.start,
-                        'end': segment.end,
-                        'speaker': spk,
-                        'text': sent
-                    })
-                    formatted_line = f"[{segment.start:6.2f}s -> {segment.end:6.2f}s] {spk}: {sent}"
-                    dialogue_lines.append(formatted_line)
-                
-                # 保存語者分離結果
-                dialogue_path = result_dir / "transcript_with_speakers.txt"
-                with open(dialogue_path, 'w', encoding='utf-8') as f:
-                    f.write('\n'.join(dialogue_lines))
-            else:
-                # 沒有語者分離，使用原始 ASR 結果
+            diarization_success = False
+
+            if enable_diarization:
+                self.unload_whisper_model()
+
+                try:
+                    # 載入語者分離模型
+                    db_manager.update_task_status(
+                        task_id,
+                        'processing',
+                        progress=65.0,
+                        current_stage='載入語者分離模型'
+                    )
+                    self.load_diarization_model()
+
+                    db_manager.update_task_status(
+                        task_id,
+                        'processing',
+                        progress=70.0,
+                        current_stage='執行語者分離'
+                    )
+
+                    # 使用 Hook 追蹤語者分離進度
+                    with CustomProgressHook(task_id, start_progress=70.0, end_progress=85.0) as hook:
+                        diarization_output = self.diarization_model(str(converted_audio_path), hook=hook)
+                    diarization_result = diarization_output.speaker_diarization
+
+                    db_manager.update_task_status(
+                        task_id,
+                        'processing',
+                        progress=85.0,
+                        current_stage='整合語者資訊'
+                    )
+
+                    final_result = self.diarize_text(timestamp_texts, diarization_result)
+
+                    # 更新部分結果（包含語者資訊）
+                    partial_result = []
+                    dialogue_lines = []
+                    for segment, spk, sent in final_result:
+                        partial_result.append({
+                            'start': segment.start,
+                            'end': segment.end,
+                            'speaker': spk,
+                            'text': sent
+                        })
+                        formatted_line = f"[{segment.start:6.2f}s -> {segment.end:6.2f}s] {spk}: {sent}"
+                        dialogue_lines.append(formatted_line)
+
+                    # 保存語者分離結果
+                    dialogue_path = result_dir / "transcript_with_speakers.txt"
+                    with open(dialogue_path, 'w', encoding='utf-8') as f:
+                        f.write('\n'.join(dialogue_lines))
+
+                    diarization_success = True
+
+                except Exception as e:
+                    # 語者分離失敗，記錄錯誤並使用 ASR 結果
+                    print(f"語者分離失敗: {str(e)}")
+                    print("將僅返回 ASR 轉錄結果")
+                    db_manager.update_task_status(
+                        task_id,
+                        'processing',
+                        progress=65.0,
+                        current_stage='語者分離失敗，使用 ASR 結果'
+                    )
+
+            # 如果沒有啟用語者分離或語者分離失敗，使用原始 ASR 結果
+            if not diarization_success:
                 dialogue_path = result_dir / "transcript.txt"
                 with open(dialogue_path, 'w', encoding='utf-8') as f:
                     f.write('\n'.join(asr_lines))

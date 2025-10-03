@@ -18,7 +18,7 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
   const [endTime, setEndTime] = useState<number | undefined>(undefined);
   const [language, setLanguage] = useState<string>('');
   const [taskType, setTaskType] = useState<string>('transcribe');
-  const [model, setModel] = useState<string>('XA9/Belle-faster-whisper-large-v3-zh-punct');
+  const [model, setModel] = useState<string>('CWTchen/Belle-whisper-large-v3-zh-punct-ct2-faster-whisper-float32');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleTimeRangeChange = (start: number, end: number) => {
@@ -215,8 +215,8 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
             onChange={(e) => setModel(e.target.value)}
             disabled={disabled}
           >
-            <option value="XA9/Belle-faster-whisper-large-v3-zh-punct">Belle Large V3 (推薦)</option>
-            <option value="XA9/Belle-faster-whisper-large-v3-zh-punct-int8">Belle Large V3 INT8 (較快)</option>
+            <option value="CWTchen/Belle-whisper-large-v3-zh-punct-ct2-faster-whisper-float32">Belle Large V3 f32 (推薦)</option>
+            <option value="XA9/Belle-faster-whisper-large-v3-zh-punct">Belle Large V3 f16 (較快)</option>
           </select>
         </div>
       </div>
