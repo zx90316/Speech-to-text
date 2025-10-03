@@ -223,7 +223,6 @@ export const AudioPreprocessor: React.FC<AudioPreprocessorProps> = ({ onPreproce
         target_level: -16.0,
         enable_vocal_enhancement: true,
         enhancement_strength: 0.5,
-        enable_silence_removal: true,
         silence_threshold: -50.0,
         min_silence_duration: 1.0,
         enable_mono: true,

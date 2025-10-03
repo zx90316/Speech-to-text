@@ -61,7 +61,8 @@ class TaskProcessor:
         self.whisper_model = WhisperModel(
             model_name,
             device=self.device,
-            compute_type="float16" if "int8" not in model_name.lower() else "int8"
+            compute_type="float16" if "int8" not in model_name.lower() else "int8",
+            local_files_only= True
         )
         self.current_model_name = model_name
         print(f"Whisper 模型載入完成: {model_name}")
