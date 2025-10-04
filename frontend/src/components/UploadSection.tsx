@@ -6,7 +6,21 @@ import { Upload, FileAudio, X } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
 
 interface UploadSectionProps {
-  onUpload: (file: File, enableDiarization: boolean, startTime?: number, endTime?: number, language?: string, task?: string, model?: string) => void;
+  onUpload: (
+    file: File,
+    enableDiarization: boolean,
+    startTime?: number,
+    endTime?: number,
+    language?: string,
+    task?: string,
+    model?: string,
+    vadOnset?: number,
+    vadOffset?: number,
+    minSpeakers?: number,
+    maxSpeakers?: number,
+    enableWordTimestamps?: boolean,
+    enableConfidenceScore?: boolean
+  ) => void;
   disabled?: boolean;
 }
 
@@ -19,6 +33,16 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
   const [language, setLanguage] = useState<string>('');
   const [taskType, setTaskType] = useState<string>('transcribe');
   const [model, setModel] = useState<string>('CWTchen/Belle-whisper-large-v3-zh-punct-ct2-faster-whisper-float32');
+
+  // 進階參數
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [vadOnset, setVadOnset] = useState<number>(0.5);
+  const [vadOffset, setVadOffset] = useState<number>(0.363);
+  const [minSpeakers, setMinSpeakers] = useState<number | undefined>(undefined);
+  const [maxSpeakers, setMaxSpeakers] = useState<number | undefined>(undefined);
+  const [enableWordTimestamps, setEnableWordTimestamps] = useState(false);
+  const [enableConfidenceScore, setEnableConfidenceScore] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleTimeRangeChange = (start: number, end: number) => {
@@ -77,7 +101,13 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
         endTime,
         language || undefined,
         taskType,
-        model
+        model,
+        vadOnset,
+        vadOffset,
+        minSpeakers,
+        maxSpeakers,
+        enableWordTimestamps,
+        enableConfidenceScore
       );
       setSelectedFile(null);
       setStartTime(undefined);
@@ -207,6 +237,7 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
           </div>
         </div>
 
+
         <div className="model-selector">
           <label htmlFor="model">Whisper 模型：</label>
           <select
@@ -219,6 +250,112 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
             <option value="XA9/Belle-faster-whisper-large-v3-zh-punct">Belle Large V3 f16 (較快)</option>
           </select>
         </div>
+      </div>
+
+      {/* 進階參數區域 */}
+      <div className="advanced-section">
+        <button
+          type="button"
+          className="advanced-toggle"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          disabled={disabled}
+        >
+          {showAdvanced ? '▼' : '▶'} 進階參數
+        </button>
+
+        {showAdvanced && (
+          <div className="advanced-options">
+            <div className="advanced-row">
+              <div className="param-group">
+                <label htmlFor="vadOnset">
+                  VAD 檢測敏感度：
+                  <span className="param-value">{vadOnset.toFixed(2)}</span>
+                </label>
+                <input
+                  type="range"
+                  id="vadOnset"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={vadOnset}
+                  onChange={(e) => setVadOnset(parseFloat(e.target.value))}
+                  disabled={disabled}
+                />
+                <span className="param-hint">較低值檢測更多語音片段</span>
+              </div>
+
+              <div className="param-group">
+                <label htmlFor="vadOffset">
+                  VAD 結束閾值：
+                  <span className="param-value">{vadOffset.toFixed(3)}</span>
+                </label>
+                <input
+                  type="range"
+                  id="vadOffset"
+                  min="0"
+                  max="1"
+                  step="0.001"
+                  value={vadOffset}
+                  onChange={(e) => setVadOffset(parseFloat(e.target.value))}
+                  disabled={disabled}
+                />
+                <span className="param-hint">控制語音片段結束判定</span>
+              </div>
+            </div>
+
+            <div className="advanced-row">
+              <div className="param-group">
+                <label htmlFor="minSpeakers">最小語者數：</label>
+                <input
+                  type="number"
+                  id="minSpeakers"
+                  min="1"
+                  max="10"
+                  value={minSpeakers || ''}
+                  onChange={(e) => setMinSpeakers(e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder="自動"
+                  disabled={disabled || !enableDiarization}
+                />
+              </div>
+
+              <div className="param-group">
+                <label htmlFor="maxSpeakers">最大語者數：</label>
+                <input
+                  type="number"
+                  id="maxSpeakers"
+                  min="1"
+                  max="10"
+                  value={maxSpeakers || ''}
+                  onChange={(e) => setMaxSpeakers(e.target.value ? parseInt(e.target.value) : undefined)}
+                  placeholder="自動"
+                  disabled={disabled || !enableDiarization}
+                />
+              </div>
+            </div>
+
+            <div className="advanced-row">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={enableWordTimestamps}
+                  onChange={(e) => setEnableWordTimestamps(e.target.checked)}
+                  disabled={disabled}
+                />
+                <span>啟用詞級時間戳（使用 Wav2Vec2）</span>
+              </label>
+
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={enableConfidenceScore}
+                  onChange={(e) => setEnableConfidenceScore(e.target.checked)}
+                  disabled={disabled}
+                />
+                <span>啟用信心分數輸出</span>
+              </label>
+            </div>
+          </div>
+        )}
       </div>
 
       <button

@@ -17,7 +17,13 @@ export const api = {
     endTime?: number,
     language?: string,
     task?: string,
-    model?: string
+    model?: string,
+    vadOnset?: number,
+    vadOffset?: number,
+    minSpeakers?: number,
+    maxSpeakers?: number,
+    enableWordTimestamps?: boolean,
+    enableConfidenceScore?: boolean
   ): Promise<TaskCreateResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -28,6 +34,12 @@ export const api = {
     if (language) params.language = language;
     if (task) params.task = task;
     if (model) params.model = model;
+    if (vadOnset !== undefined) params.vad_onset = vadOnset;
+    if (vadOffset !== undefined) params.vad_offset = vadOffset;
+    if (minSpeakers !== undefined) params.min_speakers = minSpeakers;
+    if (maxSpeakers !== undefined) params.max_speakers = maxSpeakers;
+    if (enableWordTimestamps !== undefined) params.enable_word_timestamps = enableWordTimestamps;
+    if (enableConfidenceScore !== undefined) params.enable_confidence_score = enableConfidenceScore;
 
     const response = await axios.post<TaskCreateResponse>(
       `${API_BASE_URL}/tasks`,

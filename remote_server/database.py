@@ -90,6 +90,31 @@ class DatabaseManager:
             if 'model' not in columns:
                 cursor.execute("ALTER TABLE tasks ADD COLUMN model TEXT DEFAULT 'XA9/Belle-faster-whisper-large-v3-zh-punct'")
                 print("已添加 model 欄位")
+
+            # 新增進階參數欄位
+            if 'vad_onset' not in columns:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN vad_onset REAL DEFAULT 0.5")
+                print("已添加 vad_onset 欄位")
+
+            if 'vad_offset' not in columns:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN vad_offset REAL DEFAULT 0.363")
+                print("已添加 vad_offset 欄位")
+
+            if 'min_speakers' not in columns:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN min_speakers INTEGER")
+                print("已添加 min_speakers 欄位")
+
+            if 'max_speakers' not in columns:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN max_speakers INTEGER")
+                print("已添加 max_speakers 欄位")
+
+            if 'enable_word_timestamps' not in columns:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN enable_word_timestamps BOOLEAN DEFAULT 0")
+                print("已添加 enable_word_timestamps 欄位")
+
+            if 'enable_confidence_score' not in columns:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN enable_confidence_score BOOLEAN DEFAULT 0")
+                print("已添加 enable_confidence_score 欄位")
         except Exception as e:
             print(f"資料庫遷移警告: {e}")
 
@@ -150,7 +175,13 @@ class DatabaseManager:
         end_time: Optional[float] = None,
         language: Optional[str] = None,
         task: str = 'transcribe',
-        model: str = 'XA9/Belle-faster-whisper-large-v3-zh-punct'
+        model: str = 'CWTchen/Belle-whisper-large-v3-zh-punct-ct2-faster-whisper-float32',
+        vad_onset: float = 0.5,
+        vad_offset: float = 0.363,
+        min_speakers: Optional[int] = None,
+        max_speakers: Optional[int] = None,
+        enable_word_timestamps: bool = False,
+        enable_confidence_score: bool = False
     ) -> Dict[str, Any]:
         """創建新任務"""
         conn = self.get_connection()
@@ -161,14 +192,17 @@ class DatabaseManager:
         cursor.execute("""
             INSERT INTO tasks (
                 task_id, client_ip, filename, status,
-                enable_diarization, start_time, end_time, language, task, model, created_at
+                enable_diarization, start_time, end_time, language, task, model,
+                vad_onset, vad_offset, min_speakers, max_speakers,
+                enable_word_timestamps, enable_confidence_score, created_at
             )
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
-        """, (task_id, client_ip, filename, enable_diarization, start_time, end_time, language, task, model, created_at))
-        
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (task_id, client_ip, filename, enable_diarization, start_time, end_time, language, task, model, 
+              vad_onset, vad_offset, min_speakers, max_speakers, enable_word_timestamps, enable_confidence_score, created_at))
+
         conn.commit()
         conn.close()
-        
+
         return self.get_task(task_id)
     
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:

@@ -27,11 +27,31 @@ function App() {
     endTime?: number,
     language?: string,
     task?: string,
-    model?: string
+    model?: string,
+    vadOnset?: number,
+    vadOffset?: number,
+    minSpeakers?: number,
+    maxSpeakers?: number,
+    enableWordTimestamps?: boolean,
+    enableConfidenceScore?: boolean
   ) => {
     setUploading(true);
     try {
-      const response = await api.createTask(file, enableDiarization, startTime, endTime, language, task, model);
+      const response = await api.createTask(
+        file,
+        enableDiarization,
+        startTime,
+        endTime,
+        language,
+        task,
+        model,
+        vadOnset,
+        vadOffset,
+        minSpeakers,
+        maxSpeakers,
+        enableWordTimestamps,
+        enableConfidenceScore
+      );
       setCurrentTaskId(response.task_id);
       // 儲存任務 ID 到 localStorage
       addTaskId(response.task_id);
