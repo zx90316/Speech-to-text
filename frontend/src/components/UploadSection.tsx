@@ -40,8 +40,8 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
   const [vadOffset, setVadOffset] = useState<number>(0.363);
   const [minSpeakers, setMinSpeakers] = useState<number | undefined>(undefined);
   const [maxSpeakers, setMaxSpeakers] = useState<number | undefined>(undefined);
-  const [enableWordTimestamps, setEnableWordTimestamps] = useState(false);
-  const [enableConfidenceScore, setEnableConfidenceScore] = useState(false);
+  const [enableWordTimestamps, setEnableWordTimestamps] = useState(true);
+  const [enableConfidenceScore, setEnableConfidenceScore] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -334,16 +334,6 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
             </div>
 
             <div className="advanced-row">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={enableWordTimestamps}
-                  onChange={(e) => setEnableWordTimestamps(e.target.checked)}
-                  disabled={disabled}
-                />
-                <span>啟用詞級時間戳（使用 Wav2Vec2）</span>
-              </label>
-
               <label className="checkbox-label">
                 <input
                   type="checkbox"

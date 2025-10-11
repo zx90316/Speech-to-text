@@ -108,10 +108,6 @@ class DatabaseManager:
                 cursor.execute("ALTER TABLE tasks ADD COLUMN max_speakers INTEGER")
                 print("已添加 max_speakers 欄位")
 
-            if 'enable_word_timestamps' not in columns:
-                cursor.execute("ALTER TABLE tasks ADD COLUMN enable_word_timestamps BOOLEAN DEFAULT 0")
-                print("已添加 enable_word_timestamps 欄位")
-
             if 'enable_confidence_score' not in columns:
                 cursor.execute("ALTER TABLE tasks ADD COLUMN enable_confidence_score BOOLEAN DEFAULT 0")
                 print("已添加 enable_confidence_score 欄位")
@@ -180,7 +176,6 @@ class DatabaseManager:
         vad_offset: float = 0.363,
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None,
-        enable_word_timestamps: bool = False,
         enable_confidence_score: bool = False
     ) -> Dict[str, Any]:
         """創建新任務"""
@@ -194,11 +189,11 @@ class DatabaseManager:
                 task_id, client_ip, filename, status,
                 enable_diarization, start_time, end_time, language, task, model,
                 vad_onset, vad_offset, min_speakers, max_speakers,
-                enable_word_timestamps, enable_confidence_score, created_at
+                enable_confidence_score, created_at
             )
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (task_id, client_ip, filename, enable_diarization, start_time, end_time, language, task, model, 
-              vad_onset, vad_offset, min_speakers, max_speakers, enable_word_timestamps, enable_confidence_score, created_at))
+              vad_onset, vad_offset, min_speakers, max_speakers, enable_confidence_score, created_at))
 
         conn.commit()
         conn.close()
@@ -267,8 +262,39 @@ class DatabaseManager:
         conn.commit()
         conn.close()
     
-    def update_task_result(self, task_id: str, result_path: str, partial_result: List[Dict]):
-        """更新任務結果"""
+    def update_task_result(self, task_id: str, result_path: str, partial_result: Optional[List[Dict]] = None):
+        """更新任務結果，並處理不可序列化的資料類型"""
+        
+        serializable_result_list = partial_result
+        if isinstance(partial_result, list):
+            serializable_result_list = []
+            for segment in partial_result:
+                if not isinstance(segment, dict):
+                    serializable_result_list.append(segment)
+                    continue
+
+                segment_copy = segment.copy()
+                if 'words' in segment_copy and isinstance(segment_copy['words'], list):
+                    serializable_words = []
+                    for word in segment_copy['words']:
+                        if hasattr(word, 'start') and hasattr(word, 'word'):  # Duck typing for Word object
+                            serializable_words.append({
+                                'start': float(word.start),
+                                'end': float(word.end),
+                                'word': word.word,
+                                'probability': float(word.probability)
+                            })
+                        elif isinstance(word, dict): # Handles dict with numpy floats
+                            word_copy = word.copy()
+                            if 'start' in word_copy: word_copy['start'] = float(word_copy['start'])
+                            if 'end' in word_copy: word_copy['end'] = float(word_copy['end'])
+                            if 'probability' in word_copy: word_copy['probability'] = float(word_copy['probability'])
+                            serializable_words.append(word_copy)
+                        else:
+                            serializable_words.append(word)
+                    segment_copy['words'] = serializable_words
+                serializable_result_list.append(segment_copy)
+
         conn = self.get_connection()
         cursor = conn.cursor()
         
@@ -276,7 +302,7 @@ class DatabaseManager:
             UPDATE tasks 
             SET result_path = ?, partial_result = ?
             WHERE task_id = ?
-        """, (result_path, json.dumps(partial_result, ensure_ascii=False), task_id))
+        """, (result_path, json.dumps(serializable_result_list, ensure_ascii=False), task_id))
         
         conn.commit()
         conn.close()

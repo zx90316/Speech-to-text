@@ -109,7 +109,6 @@ async def process_queue():
                 vad_offset=task.get('vad_offset', 0.363),
                 min_speakers=task.get('min_speakers'),
                 max_speakers=task.get('max_speakers'),
-                enable_word_timestamps=task.get('enable_word_timestamps', False),
                 enable_confidence_score=task.get('enable_confidence_score', False)
             )
 
@@ -179,7 +178,6 @@ async def create_task(
     vad_offset: float = Query(0.363, ge=0, le=1, description="VAD 語音結束閾值 (0-1)"),
     min_speakers: Optional[int] = Query(None, ge=1, description="最小語者數"),
     max_speakers: Optional[int] = Query(None, ge=1, description="最大語者數"),
-    enable_word_timestamps: bool = Query(False, description="是否啟用詞級時間戳（使用 Wav2Vec2）"),
     enable_confidence_score: bool = Query(False, description="是否啟用信心分數輸出")
 ):
     """
@@ -243,7 +241,6 @@ async def create_task(
         vad_offset=vad_offset,
         min_speakers=min_speakers,
         max_speakers=max_speakers,
-        enable_word_timestamps=enable_word_timestamps,
         enable_confidence_score=enable_confidence_score
     )
     
@@ -417,7 +414,7 @@ async def cancel_task(task_id: str, permanent: bool = Query(False, description="
 @app.get("/api/tasks/{task_id}/download", summary="下載轉錄結果")
 async def download_result(
     task_id: str,
-    file_type: str = Query("transcript", description="檔案類型: transcript (最終結果) 或 raw (原始 ASR)")
+    file_type: str = Query("transcript", description="檔案類型: transcript (最終結果)、raw (原始 ASR) 或 confidence_html (信心度視覺化)")
 ):
     """
     下載任務的轉錄結果
@@ -426,6 +423,7 @@ async def download_result(
     - **file_type**: 檔案類型
         - `transcript`: 最終結果（如有語者分離則包含語者資訊）
         - `raw`: 原始 ASR 轉錄結果
+        - `confidence_html`: 信心度視覺化 HTML 檔案
     """
     task = db_manager.get_task(task_id)
     if not task:
@@ -441,8 +439,16 @@ async def download_result(
         file_path = result_dir / "transcript_with_speakers.txt"
         if not file_path.exists():
             file_path = result_dir / "transcript.txt"
+        media_type = "text/plain"
+        filename = f"{task_id}_{file_type}.txt"
     elif file_type == "raw":
         file_path = result_dir / "transcript_raw.txt"
+        media_type = "text/plain"
+        filename = f"{task_id}_{file_type}.txt"
+    elif file_type == "confidence_html":
+        file_path = result_dir / "confidence_visualization.html"
+        media_type = "text/html"
+        filename = f"{task_id}_confidence_visualization.html"
     else:
         raise HTTPException(status_code=400, detail="不支援的檔案類型")
     
@@ -451,8 +457,8 @@ async def download_result(
     
     return FileResponse(
         path=file_path,
-        filename=f"{task_id}_{file_type}.txt",
-        media_type="text/plain"
+        filename=filename,
+        media_type=media_type
     )
 
 

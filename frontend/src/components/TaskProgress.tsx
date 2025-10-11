@@ -87,11 +87,12 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
     }
   };
 
-  const handleDownload = (fileType: 'transcript' | 'raw') => {
+  const handleDownload = (fileType: 'transcript' | 'raw' | 'confidence_html') => {
     const url = api.downloadResult(taskId, fileType);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${task?.filename}_${fileType}.txt`;
+    const extension = fileType === 'confidence_html' ? 'html' : 'txt';
+    a.download = `${task?.filename}_${fileType}.${extension}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -282,6 +283,14 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
             >
               <Download size={16} />
               下載原始 ASR
+            </button>
+            <button 
+              className="download-btn secondary" 
+              onClick={() => handleDownload('confidence_html')}
+              title="下載信心度視覺化 HTML（需啟用詞級時間戳或信心分數）"
+            >
+              <Download size={16} />
+              下載信心度視覺化
             </button>
           </>
         )}

@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from pyannote.core import Segment
 import torch
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
+#torch.backends.cuda.matmul.allow_tf32 = True
+#torch.backends.cudnn.allow_tf32 = True
 from opencc import OpenCC
 from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline
@@ -118,14 +118,13 @@ class TaskProcessor:
         self.unload_whisper_model()
 
         # 載入新模型
-        print(f"正在載入 Whisper 模型: {model_name} (設備: {self.device})")
-        print(f"使用 compute_type: {compute_type} 以優化記憶體使用")
+        print(f"正在載入 Whisper 模型: {model_name} (設備: {self.device}) compute_type: {compute_type}")
 
         self.whisper_model = WhisperModel(
             model_name,
             device=self.device,
             compute_type=compute_type,
-            local_files_only=True
+            local_files_only=False
         )
         self.current_model_name = model_name
         print(f"Whisper 模型載入完成: {model_name}")
@@ -161,187 +160,6 @@ class TaskProcessor:
 
         self.diarization_loaded = False
         print("語者分離模型已卸載")
-
-    def load_align_model(self, language_code: str):
-        """載入對齊模型（用於詞級時間戳）"""
-        if not WAV2VEC2_AVAILABLE:
-            print("Wav2Vec2 未安裝，無法使用詞級對齊功能")
-            return False
-
-        if self.align_loaded and self.current_language == language_code:
-            return True
-
-        # 卸載舊的對齊模型
-        self.unload_align_model()
-
-        print(f"正在載入對齊模型，語言: {language_code}")
-        try:
-            # 根據語言選擇適合的 Wav2Vec2 模型
-            model_mapping = {
-                'zh': 'jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn',
-                'en': 'facebook/wav2vec2-large-960h-lv60-self',
-                'ja': 'jonatasgrosman/wav2vec2-large-xlsr-53-japanese',
-                'ko': 'kresnik/wav2vec2-large-xlsr-korean',
-                'fr': 'facebook/wav2vec2-large-xlsr-53-french',
-                'de': 'facebook/wav2vec2-large-xlsr-53-german',
-                'es': 'facebook/wav2vec2-large-xlsr-53-spanish',
-            }
-
-            model_name = model_mapping.get(language_code, 'facebook/wav2vec2-large-960h-lv60-self')
-
-            self.align_processor = Wav2Vec2Processor.from_pretrained(model_name)
-            self.align_model = Wav2Vec2ForCTC.from_pretrained(model_name)
-            self.align_model.to(self.device)
-            self.align_model.eval()
-
-            self.current_language = language_code
-            self.align_loaded = True
-            print(f"對齊模型載入完成: {model_name}")
-            return True
-        except Exception as e:
-            print(f"載入對齊模型失敗: {e}")
-            return False
-
-    def unload_align_model(self):
-        """卸載對齊模型以釋放 VRAM"""
-        if not self.align_loaded:
-            return
-
-        print("正在卸載對齊模型以釋放 VRAM...")
-        if self.align_model is not None:
-            del self.align_model
-            del self.align_processor
-            self.align_model = None
-            self.align_processor = None
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        self.align_loaded = False
-        self.current_language = None
-        print("對齊模型已卸載")
-
-    def align_timestamps(self, segments: List[Dict], audio_path: str, language: str) -> Optional[List[Dict]]:
-        """使用 wav2vec2 進行詞級對齊（優化版，減少記憶體使用）"""
-        if not WAV2VEC2_AVAILABLE:
-            return None
-
-        try:
-            # 載入對齊模型
-            if not self.load_align_model(language):
-                return None
-
-            # 載入完整音訊（一次性載入，避免重複 I/O）
-            waveform, sample_rate = torchaudio.load(audio_path)
-
-            # 如果是立體聲，轉換為單聲道
-            if waveform.shape[0] > 1:
-                waveform = torch.mean(waveform, dim=0, keepdim=True)
-
-            # 重採樣至 16kHz（Wav2Vec2 的標準採樣率）
-            if sample_rate != 16000:
-                resampler = torchaudio.transforms.Resample(sample_rate, 16000)
-                waveform = resampler(waveform)
-                sample_rate = 16000
-
-            aligned_segments = []
-
-            # 逐個處理 segment（避免批次處理造成 OOM）
-            for idx, segment in enumerate(segments):
-                print(f"正在對齊 segment {idx+1}/{len(segments)}")
-
-                # 提取片段時間範圍內的音訊
-                start_sample = int(segment['start'] * sample_rate)
-                end_sample = int(segment['end'] * sample_rate)
-                segment_audio = waveform[:, start_sample:end_sample].squeeze()
-
-                # 限制音訊長度，超過 30 秒的片段跳過模型推理
-                max_duration = 30.0  # 秒
-                segment_duration = (end_sample - start_sample) / sample_rate
-
-                if segment_duration > max_duration:
-                    print(f"  片段過長 ({segment_duration:.1f}s)，使用簡化對齊")
-                    words_with_timestamps = self._simple_word_alignment(
-                        segment['text'],
-                        segment['start'],
-                        segment['end']
-                    )
-                else:
-                    # 使用 Wav2Vec2 進行強制對齊
-                    words_with_timestamps = self._align_segment_words(
-                        segment_audio.cpu().numpy(),
-                        segment['text'],
-                        segment['start'],
-                        sample_rate
-                    )
-
-                # 添加詞級時間戳到片段
-                aligned_segment = segment.copy()
-                if words_with_timestamps:
-                    aligned_segment['words'] = words_with_timestamps
-
-                aligned_segments.append(aligned_segment)
-
-                # 每處理 5 個 segment 清理一次記憶體
-                if (idx + 1) % 5 == 0:
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-
-            # 釋放音訊記憶體
-            del waveform
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-            return aligned_segments
-        except Exception as e:
-            print(f"詞級對齊失敗: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
-
-    def _simple_word_alignment(self, text: str, segment_start: float, segment_end: float) -> List[Dict]:
-        """簡化的詞級對齊（基於字符比例，不使用模型推理）"""
-        try:
-            # 分詞（根據空格分割）
-            words = text.strip().split()
-
-            if not words:
-                return []
-
-            # 計算每個詞的字符數
-            chars_per_word = [len(word) for word in words]
-            total_chars = sum(chars_per_word)
-
-            if total_chars == 0:
-                return []
-
-            # 片段總時長
-            duration = segment_end - segment_start
-
-            # 根據字符比例分配時間
-            words_with_timestamps = []
-            current_time = segment_start
-
-            for i, word in enumerate(words):
-                # 根據字符比例估算時間
-                word_duration = (chars_per_word[i] / total_chars) * duration
-                word_start = current_time
-                word_end = current_time + word_duration
-
-                words_with_timestamps.append({
-                    'word': word,
-                    'start': round(word_start, 3),
-                    'end': round(word_end, 3),
-                    'probability': 1.0  # 簡化版本沒有真實的置信度
-                })
-
-                current_time = word_end
-
-            return words_with_timestamps
-
-        except Exception as e:
-            print(f"詞級對齊失敗: {e}")
-            return []
 
     def unload_whisper_model(self):
         """卸載 Whisper 模型以釋放 VRAM"""
@@ -404,10 +222,10 @@ class TaskProcessor:
     def add_speaker_info_to_text(self, timestamp_texts, ann, confidence_map=None):
         """添加語者資訊到文字"""
         spk_text = []
-        for i, (seg, text) in enumerate(timestamp_texts):
+        for i, (seg, text, words) in enumerate(timestamp_texts):
             spk = ann.crop(seg).argmax()
             confidence = confidence_map.get(i) if confidence_map else None
-            spk_text.append((seg, spk, text, confidence))
+            spk_text.append((seg, spk, text, confidence, words))
         return spk_text
 
     def merge_cache(self, text_cache):
@@ -418,27 +236,343 @@ class TaskProcessor:
         end = round(text_cache[-1][0].end, 1)
         # 計算平均信心分數
         confidences = [item[3] for item in text_cache if item[3] is not None]
+        words = []
+        for item in text_cache:
+            if item[4] is not None:
+                # Assuming item[4] is a single Word object, or an iterable of Word objects
+                if isinstance(item[4], list):
+                    words.extend(item[4])
+                else:
+                    words.append(item[4])
         avg_confidence = round(sum(confidences) / len(confidences), 1) if confidences else None
-        return Segment(start, end), spk, sentence, avg_confidence
+        return Segment(start, end), spk, sentence, avg_confidence, words
 
     def merge_sentence(self, spk_text):
         """合併句子"""
         merged_spk_text = []
         pre_spk = None
         text_cache = []
-        for seg, spk, text, confidence in spk_text:
+        for seg, spk, text, confidence,words in spk_text:
             if spk != pre_spk and len(text_cache) > 0:
                 merged_spk_text.append(self.merge_cache(text_cache))
-                text_cache = [(seg, spk, text, confidence)]
+                text_cache = [(seg, spk, text, confidence,words)]
                 pre_spk = spk
             elif spk == pre_spk and text == text_cache[-1][2]:
                 continue
             else:
-                text_cache.append((seg, spk, text, confidence))
+                text_cache.append((seg, spk, text, confidence,words))
                 pre_spk = spk
         if len(text_cache) > 0:
             merged_spk_text.append(self.merge_cache(text_cache))
         return merged_spk_text
+
+    def generate_confidence_html(self, segments: List[Dict], output_path: str, enable_diarization: bool = False):
+        """
+        生成詞級信心度視覺化 HTML 檔案
+        
+        Args:
+            segments: 包含詞級時間戳和信心度的片段列表
+            output_path: 輸出 HTML 檔案路徑
+            enable_diarization: 是否包含語者資訊
+        """
+        def confidence_to_color(confidence: float) -> str:
+            """
+            將信心度轉換為顏色（0-1）
+            高信心度 -> 綠色
+            中等信心度 -> 黃色
+            低信心度 -> 紅色
+            """
+            if confidence >= 0.8:
+                # 高信心度：綠色
+                r = int((1 - confidence) * 255 * 5)  # 0-51
+                g = 200
+                b = 100
+            elif confidence >= 0.5:
+                # 中等信心度：黃色到綠色
+                ratio = (confidence - 0.5) / 0.3
+                r = int(255 - ratio * 55)
+                g = int(150 + ratio * 50)
+                b = 50
+            else:
+                # 低信心度：紅色到黃色
+                ratio = confidence / 0.5
+                r = 255
+                g = int(ratio * 150)
+                b = 50
+            
+            return f"rgb({r}, {g}, {b})"
+        
+        html_content = """<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>詞級信心度視覺化</title>
+    <style>
+        body {
+            font-family: 'Microsoft JhengHei', 'PingFang TC', Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .legend {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .legend h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .legend-items {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .legend-color {
+            width: 40px;
+            height: 20px;
+            border-radius: 3px;
+        }
+        .segment {
+            background: white;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .segment-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        .timestamp {
+            font-family: 'Courier New', monospace;
+            color: #666;
+            font-size: 14px;
+            background: #f8f8f8;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+        .speaker {
+            font-weight: bold;
+            color: #667eea;
+            background: #e8ebff;
+            padding: 5px 12px;
+            border-radius: 4px;
+        }
+        .confidence-badge {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #f0f0f0;
+            color: #666;
+        }
+        .content {
+            font-size: 16px;
+        }
+        .word {
+            border-radius: 4px;
+            display: inline-block;
+            transition: all 0.2s;
+            cursor: pointer;
+            color: white;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        .word:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .word-tooltip {
+            position: relative;
+        }
+        .word-tooltip:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            white-space: nowrap;
+            font-size: 13px;
+            z-index: 1000;
+            margin-bottom: 5px;
+        }
+        .stats {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stats h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .stat-item {
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .stat-label {
+            color: #666;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="legend">
+        <h3>📊 信心度圖例</h3>
+        <div class="legend-items">
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgb(145, 200, 100);"></div>
+                <span>高信心度 (80-100%)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgb(255, 180, 50);"></div>
+                <span>中等信心度 (50-80%)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgb(255, 75, 50);"></div>
+                <span>低信心度 (0-50%)</span>
+            </div>
+        </div>
+    </div>
+"""
+        
+        # 統計資料
+        total_words = 0
+        total_segments = len(segments)
+        confidence_sum = 0
+        confidence_count = 0
+        low_confidence_words = 0
+        
+        # 生成每個片段的內容
+        for idx, segment in enumerate(segments):
+            start_time = segment.get('start', 0)
+            end_time = segment.get('end', 0)
+            text = segment.get('text', '')
+            speaker = segment.get('speaker', '')
+            segment_confidence = segment.get('confidence', None)
+            words = segment.get('words', None)
+            
+            html_content += f'    <div class="segment">\n'
+            html_content += f'        <div class="segment-header">\n'
+            html_content += f'            <span class="timestamp">{start_time:.2f}s → {end_time:.2f}s</span>\n'
+            
+            if enable_diarization and speaker:
+                html_content += f'            <span class="speaker">{speaker}</span>\n'
+            
+            if segment_confidence is not None:
+                html_content += f'            <span class="confidence-badge">片段信心度: {segment_confidence:.1f}%</span>\n'
+            
+            html_content += f'        </div>\n'
+            html_content += f'        <div class="content">\n'
+            
+            # 如果有詞級時間戳
+            if words:
+                for word_info in words:
+                    word_text = cc.convert(word_info.word)
+                    word_start = word_info.start
+                    word_end = word_info.end
+                    probability = word_info.probability
+                    
+                    # 轉換為百分比
+                    confidence_pct = probability * 100
+                    color = confidence_to_color(probability)
+                    
+                    tooltip = f"信心度: {confidence_pct:.1f}% | 時間: {word_start:.2f}s-{word_end:.2f}s"
+                    
+                    html_content += f'            <span class="word word-tooltip" style="color: {color};" data-tooltip="{tooltip}">{word_text}</span>\n'
+                    
+                    total_words += 1
+                    confidence_sum += probability
+                    confidence_count += 1
+                    
+                    if probability < 0.5:
+                        low_confidence_words += 1
+            else:
+                # 沒有詞級時間戳，顯示整個片段
+                if segment_confidence is not None:
+                    confidence = segment_confidence / 100.0
+                    color = confidence_to_color(confidence)
+                    tooltip = f"信心度: {segment_confidence:.1f}%"
+                    html_content += f'            <span class="word word-tooltip" style="background-color: {color};" data-tooltip="{tooltip}">{text}</span>\n'
+                    
+                    confidence_sum += confidence
+                    confidence_count += 1
+                else:
+                    # 沒有信心度資訊
+                    html_content += f'            <span>{text}</span>\n'
+            
+            html_content += f'        </div>\n'
+            html_content += f'    </div>\n\n'
+        
+        # 計算平均信心度
+        avg_confidence = (confidence_sum / confidence_count * 100) if confidence_count > 0 else 0
+        
+        # 添加統計資訊
+        html_content += f"""
+    <div class="stats">
+        <h3>📈 統計資訊</h3>
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div class="stat-value">{total_segments}</div>
+                <div class="stat-label">總片段數</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">{total_words}</div>
+                <div class="stat-label">總詞數</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">{avg_confidence:.1f}%</div>
+                <div class="stat-label">平均信心度</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value">{low_confidence_words}</div>
+                <div class="stat-label">低信心度詞數 (&lt;50%)</div>
+            </div>
+        </div>
+    </div>
+"""
+        
+        html_content += """
+</body>
+</html>
+"""
+        
+        # 寫入檔案
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        
+        print(f"✓ 信心度視覺化 HTML 已生成: {output_path}")
 
     def diarize_text(self, timestamp_texts, diarization_result, confidence_map=None):
         """語者分離與文字整合"""
@@ -461,7 +595,6 @@ class TaskProcessor:
         vad_offset: float = 0.363,
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None,
-        enable_word_timestamps: bool = False,
         enable_confidence_score: bool = False
     ):
         """
@@ -480,7 +613,6 @@ class TaskProcessor:
             vad_offset: VAD 語音結束閾值
             min_speakers: 最小語者數
             max_speakers: 最大語者數
-            enable_word_timestamps: 是否啟用詞級時間戳
             enable_confidence_score: 是否啟用信心分數輸出
         """
         try:
@@ -556,6 +688,13 @@ class TaskProcessor:
                 "min_silence_duration_ms": 500
             }
 
+            # 如果啟用信心分數或詞級時間戳，都需要 Whisper 生成詞級資料
+            # 在某些 Whisper 實現中，word_timestamps 可以是 True 或 "word"
+            # 測試發現使用 True 即可正確返回詞級資料
+            need_word_timestamps = enable_confidence_score
+            
+            print(f"📝 word_timestamps 設定: {need_word_timestamps}")
+            
             segments, info = self.whisper_model.transcribe(
                 audio=str(converted_audio_path),
                 language=language,
@@ -563,7 +702,7 @@ class TaskProcessor:
                 beam_size=beam_size,  # 減少 beam size 以降低記憶體使用
                 vad_filter=True,  # 啟用 VAD 過濾靜音片段
                 vad_parameters=vad_parameters,  # 使用進階 VAD 參數
-                word_timestamps=enable_word_timestamps,  # 根據參數決定是否啟用詞級時間戳
+                word_timestamps=need_word_timestamps,  # True 即可啟用詞級時間戳
                 log_progress=True,
             )
             
@@ -583,7 +722,7 @@ class TaskProcessor:
 
                 segment_count += 1
                 converted_text = cc.convert(segment.text)
-                timestamp_texts.append((Segment(segment.start, segment.end), converted_text))
+                timestamp_texts.append((Segment(segment.start, segment.end), converted_text ,segment.words))
 
                 # 計算信心分數百分比
                 confidence_pct = None
@@ -613,8 +752,10 @@ class TaskProcessor:
                     seg_data['confidence'] = confidence_pct
 
                 # 添加詞級時間戳（如果有）
-                if hasattr(segment, 'words') and segment.words:
+                has_words = hasattr(segment, 'words') and segment.words
+                if has_words:
                     # 將 Word 對象轉換為字典，確保可以 JSON 序列化
+                    words_list = list(segment.words) if segment.words else []
                     seg_data['words'] = [
                         {
                             'word': word.word,
@@ -622,7 +763,7 @@ class TaskProcessor:
                             'end': word.end,
                             'probability': word.probability
                         }
-                        for word in segment.words
+                        for word in words_list
                     ]
 
                 segments_list.append(seg_data)
@@ -654,37 +795,6 @@ class TaskProcessor:
             # 檢查是否被取消
             if self.check_cancelled(task_id):
                 return
-
-            # 詞級對齊（如果啟用）
-            if enable_word_timestamps and WAV2VEC2_AVAILABLE:
-                # 使用 Wav2Vec2 進行詞級對齊
-                detected_language = language if language else info.language
-
-                db_manager.update_task_status(
-                    task_id,
-                    'processing',
-                    progress=62.0,
-                    current_stage='執行詞級對齊'
-                )
-
-                aligned_segments = self.align_timestamps(
-                    segments_list,
-                    str(converted_audio_path),
-                    detected_language
-                )
-
-                if aligned_segments:
-                    segments_list = aligned_segments
-                    partial_result = aligned_segments
-                    db_manager.update_task_result(task_id, "", partial_result)
-                    print("詞級對齊完成")
-
-                db_manager.update_task_status(
-                    task_id,
-                    'processing',
-                    progress=65.0,
-                    current_stage='詞級對齊完成'
-                )
             
             # 語者分離（如果啟用）
             final_result = None
@@ -738,12 +848,13 @@ class TaskProcessor:
                     # 更新部分結果（包含語者資訊）
                     partial_result = []
                     dialogue_lines = []
-                    for segment, spk, sent, confidence in final_result:
+                    for segment, spk, sent, confidence, words in final_result:
                         result_dict = {
                             'start': segment.start,
                             'end': segment.end,
                             'speaker': spk,
-                            'text': sent
+                            'text': sent,
+                            'words': words
                         }
                         if confidence is not None:
                             result_dict['confidence'] = confidence
@@ -785,6 +896,19 @@ class TaskProcessor:
             # 檢查是否被取消
             if self.check_cancelled(task_id):
                 return
+            
+            # 生成信心度視覺化 HTML（如果有信心度資料）
+            if enable_confidence_score:
+                try:
+                    html_path = result_dir / "confidence_visualization.html"
+                    self.generate_confidence_html(
+                        segments=partial_result,
+                        output_path=str(html_path),
+                        enable_diarization=diarization_success
+                    )
+                except Exception as e:
+                    print(f"⚠️ 警告：生成信心度 HTML 失敗: {str(e)}")
+                    # 不影響主任務，繼續執行
             
             # 任務完成
             db_manager.update_task_status(

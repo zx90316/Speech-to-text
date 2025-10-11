@@ -38,7 +38,6 @@ export const api = {
     if (vadOffset !== undefined) params.vad_offset = vadOffset;
     if (minSpeakers !== undefined) params.min_speakers = minSpeakers;
     if (maxSpeakers !== undefined) params.max_speakers = maxSpeakers;
-    if (enableWordTimestamps !== undefined) params.enable_word_timestamps = enableWordTimestamps;
     if (enableConfidenceScore !== undefined) params.enable_confidence_score = enableConfidenceScore;
 
     const response = await axios.post<TaskCreateResponse>(
@@ -80,7 +79,7 @@ export const api = {
   /**
    * 下載結果
    */
-  downloadResult(taskId: string, fileType: 'transcript' | 'raw' = 'transcript'): string {
+  downloadResult(taskId: string, fileType: 'transcript' | 'raw' | 'confidence_html' = 'transcript'): string {
     return `${API_BASE_URL}/tasks/${taskId}/download?file_type=${fileType}`;
   },
 
