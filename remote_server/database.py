@@ -111,6 +111,11 @@ class DatabaseManager:
             if 'enable_confidence_score' not in columns:
                 cursor.execute("ALTER TABLE tasks ADD COLUMN enable_confidence_score BOOLEAN DEFAULT 0")
                 print("已添加 enable_confidence_score 欄位")
+            
+            if 'compute_type' not in columns:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN compute_type TEXT DEFAULT NULL")
+                print("已添加 compute_type 欄位")
+
         except Exception as e:
             print(f"資料庫遷移警告: {e}")
 
@@ -171,12 +176,13 @@ class DatabaseManager:
         end_time: Optional[float] = None,
         language: Optional[str] = None,
         task: str = 'transcribe',
-        model: str = 'CWTchen/Belle-whisper-large-v3-zh-punct-ct2-faster-whisper-float32',
+        model: str = 'CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32',
         vad_onset: float = 0.5,
         vad_offset: float = 0.363,
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None,
-        enable_confidence_score: bool = False
+        enable_confidence_score: bool = False,
+        compute_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """創建新任務"""
         conn = self.get_connection()
@@ -189,11 +195,11 @@ class DatabaseManager:
                 task_id, client_ip, filename, status,
                 enable_diarization, start_time, end_time, language, task, model,
                 vad_onset, vad_offset, min_speakers, max_speakers,
-                enable_confidence_score, created_at
+                enable_confidence_score, created_at, compute_type
             )
-            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (task_id, client_ip, filename, enable_diarization, start_time, end_time, language, task, model, 
-              vad_onset, vad_offset, min_speakers, max_speakers, enable_confidence_score, created_at))
+              vad_onset, vad_offset, min_speakers, max_speakers, enable_confidence_score, created_at, compute_type))
 
         conn.commit()
         conn.close()

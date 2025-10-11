@@ -18,8 +18,8 @@ interface UploadSectionProps {
     vadOffset?: number,
     minSpeakers?: number,
     maxSpeakers?: number,
-    enableWordTimestamps?: boolean,
-    enableConfidenceScore?: boolean
+    enableConfidenceScore?: boolean,
+    computeType?: string
   ) => void;
   disabled?: boolean;
 }
@@ -32,7 +32,7 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
   const [endTime, setEndTime] = useState<number | undefined>(undefined);
   const [language, setLanguage] = useState<string>('');
   const [taskType, setTaskType] = useState<string>('transcribe');
-  const [model, setModel] = useState<string>('CWTchen/Belle-whisper-large-v3-zh-punct-ct2-faster-whisper-float32');
+  const [model, setModel] = useState<string>('CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32');
 
   // 進階參數
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -40,8 +40,8 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
   const [vadOffset, setVadOffset] = useState<number>(0.363);
   const [minSpeakers, setMinSpeakers] = useState<number | undefined>(undefined);
   const [maxSpeakers, setMaxSpeakers] = useState<number | undefined>(undefined);
-  const [enableWordTimestamps, setEnableWordTimestamps] = useState(true);
   const [enableConfidenceScore, setEnableConfidenceScore] = useState(true);
+  const [computeType, setComputeType] = useState<string>('float32');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -106,8 +106,8 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
         vadOffset,
         minSpeakers,
         maxSpeakers,
-        enableWordTimestamps,
-        enableConfidenceScore
+        enableConfidenceScore,
+        computeType || undefined
       );
       setSelectedFile(null);
       setStartTime(undefined);
@@ -246,8 +246,21 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
             onChange={(e) => setModel(e.target.value)}
             disabled={disabled}
           >
-            <option value="CWTchen/Belle-whisper-large-v3-zh-punct-ct2-faster-whisper-float32">Belle Large V3 f32 (推薦)</option>
-            <option value="XA9/Belle-faster-whisper-large-v3-zh-punct">Belle Large V3 f16 (較快)</option>
+            <option value="CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32">CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32</option>
+          </select>
+        </div>
+
+        <div className="compute-type-selector">
+          <label htmlFor="computeType">計算類型：</label>
+          <select
+            id="computeType"
+            value={computeType}
+            onChange={(e) => setComputeType(e.target.value)}
+            disabled={disabled}
+          >
+            <option value="float32">float32 (慢，但精度高)</option>
+            <option value="float16">float16 (快，但精度低)</option>
+            <option value="int8">int8 (最快，但精度最低)</option>
           </select>
         </div>
       </div>

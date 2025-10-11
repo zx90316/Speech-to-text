@@ -104,12 +104,13 @@ async def process_queue():
                 end_time=task.get('end_time'),
                 language=task.get('language'),
                 task=task.get('task', 'transcribe'),
-                model=task.get('model', 'CWTchen/Belle-whisper-large-v3-zh-punct-ct2-faster-whisper-float32'),
+                model=task.get('model', 'CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32'),
                 vad_onset=task.get('vad_onset', 0.5),
                 vad_offset=task.get('vad_offset', 0.363),
                 min_speakers=task.get('min_speakers'),
                 max_speakers=task.get('max_speakers'),
-                enable_confidence_score=task.get('enable_confidence_score', False)
+                enable_confidence_score=task.get('enable_confidence_score', False),
+                compute_type=task.get('compute_type', None)
             )
 
         except Exception as e:
@@ -172,13 +173,14 @@ async def create_task(
     end_time: Optional[float] = Query(None, ge=0, description="結束時間（秒）"),
     language: Optional[str] = Query(None, description="語言代碼（如 zh, en, ja），留空自動偵測"),
     task: str = Query("transcribe", description="任務類型：transcribe（轉錄）或 translate（翻譯成英文）"),
-    model: str = Query("CWTchen/Belle-whisper-large-v3-zh-punct-ct2-faster-whisper-float32", description="Whisper 模型"),
+    model: str = Query("CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32", description="Whisper 模型"),
     # 進階參數
     vad_onset: float = Query(0.5, ge=0, le=1, description="VAD 語音檢測敏感度 (0-1)"),
     vad_offset: float = Query(0.363, ge=0, le=1, description="VAD 語音結束閾值 (0-1)"),
     min_speakers: Optional[int] = Query(None, ge=1, description="最小語者數"),
     max_speakers: Optional[int] = Query(None, ge=1, description="最大語者數"),
-    enable_confidence_score: bool = Query(False, description="是否啟用信心分數輸出")
+    enable_confidence_score: bool = Query(False, description="是否啟用信心分數輸出"),
+    compute_type: Optional[str] = Query(None, description="計算類型 (float32, int8, float16)")
 ):
     """
     提交新的語音轉文字任務
@@ -241,7 +243,9 @@ async def create_task(
         vad_offset=vad_offset,
         min_speakers=min_speakers,
         max_speakers=max_speakers,
-        enable_confidence_score=enable_confidence_score
+        enable_confidence_score=enable_confidence_score,
+        compute_type=compute_type
+
     )
     
     # 加入處理佇列

@@ -13,7 +13,7 @@ if sys.platform == 'win32':
 
 # 模型設定
 MODEL_PATH = "Belle-faster-whisper-large-v3-zh-punct"
-REPO_NAME = "Belle-whisper-large-v3-zh-punct-ct2-faster-whisper-float32"  # 只填 repo 名稱，不含用戶名
+REPO_NAME = "Belle-whisper-large-v3-zh-punct-ct2-float32"  # 只填 repo 名稱，不含用戶名
 REPO_TYPE = "model"
 
 def upload_model():

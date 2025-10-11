@@ -32,8 +32,8 @@ function App() {
     vadOffset?: number,
     minSpeakers?: number,
     maxSpeakers?: number,
-    enableWordTimestamps?: boolean,
-    enableConfidenceScore?: boolean
+    enableConfidenceScore?: boolean,
+    computeType?: string
   ) => {
     setUploading(true);
     try {
@@ -49,8 +49,8 @@ function App() {
         vadOffset,
         minSpeakers,
         maxSpeakers,
-        enableWordTimestamps,
-        enableConfidenceScore
+        enableConfidenceScore,
+        computeType
       );
       setCurrentTaskId(response.task_id);
       // 儲存任務 ID 到 localStorage

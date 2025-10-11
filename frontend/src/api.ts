@@ -22,8 +22,8 @@ export const api = {
     vadOffset?: number,
     minSpeakers?: number,
     maxSpeakers?: number,
-    enableWordTimestamps?: boolean,
-    enableConfidenceScore?: boolean
+    enableConfidenceScore?: boolean,
+    computeType?: string
   ): Promise<TaskCreateResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -39,6 +39,7 @@ export const api = {
     if (minSpeakers !== undefined) params.min_speakers = minSpeakers;
     if (maxSpeakers !== undefined) params.max_speakers = maxSpeakers;
     if (enableConfidenceScore !== undefined) params.enable_confidence_score = enableConfidenceScore;
+    if (computeType !== undefined) params.compute_type = computeType;
 
     const response = await axios.post<TaskCreateResponse>(
       `${API_BASE_URL}/tasks`,

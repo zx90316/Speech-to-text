@@ -17,23 +17,7 @@ from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline
 from dotenv import load_dotenv
 
-# 導入用於詞級對齊的依賴
-try:
-    from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
-    import torchaudio
-    import numpy as np
-    WAV2VEC2_AVAILABLE = True
-except ImportError:
-    WAV2VEC2_AVAILABLE = False
-    print("Wav2Vec2 未安裝，詞級對齊功能將不可用")
-
-# 嘗試導入 ProgressHook
-try:
-    from pyannote.audio.pipelines.utils.hook import ProgressHook
-    PROGRESS_HOOK_AVAILABLE = True
-except ImportError:
-    PROGRESS_HOOK_AVAILABLE = False
-    print("ProgressHook 不可用，將使用備選進度追蹤方案")
+from pyannote.audio.pipelines.utils.hook import ProgressHook
 
 from database import db_manager
 
@@ -115,7 +99,7 @@ class TaskProcessor:
             return
         
         # 卸載舊模型
-        self.unload_whisper_model()
+        self.unload_model()
 
         # 載入新模型
         print(f"正在載入 Whisper 模型: {model_name} (設備: {self.device}) compute_type: {compute_type}")
@@ -130,7 +114,7 @@ class TaskProcessor:
         print(f"Whisper 模型載入完成: {model_name}")
 
     def load_diarization_model(self):
-        """載入語者分離模型（延遲載入）"""
+        """載入語者分離模型"""
         if self.diarization_loaded:
             return
 
@@ -145,8 +129,27 @@ class TaskProcessor:
         print("語者分離模型載入完成")
         self.diarization_loaded = True
 
+    def unload_model(self):
+        """卸載所有模型以釋放 VRAM"""
+        if not self.diarization_loaded and self.whisper_model is None:
+            return
+
+        print("正在卸載所有模型以釋放 VRAM...")
+        if self.diarization_model is not None:
+            del self.diarization_model
+            self.diarization_model = None
+        if self.whisper_model is not None:
+            del self.whisper_model
+            self.whisper_model = None
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        self.diarization_loaded = False
+        print("所有模型已卸載")
+    
     def unload_diarization_model(self):
-        """卸載語者分離模型以釋放 VRAM"""
+        """只卸載語者分離模型以釋放 VRAM（保留 Whisper 模型）"""
         if not self.diarization_loaded:
             return
 
@@ -160,21 +163,6 @@ class TaskProcessor:
 
         self.diarization_loaded = False
         print("語者分離模型已卸載")
-
-    def unload_whisper_model(self):
-        """卸載 Whisper 模型以釋放 VRAM"""
-        if self.whisper_model is None:
-            return
-
-        print("正在卸載 Whisper 模型以釋放 VRAM...")
-        del self.whisper_model
-        self.whisper_model = None
-        self.current_model_name = None
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
-        print("Whisper 模型已卸載")
     
     def check_cancelled(self, task_id: str) -> bool:
         """檢查任務是否被取消"""
@@ -589,13 +577,14 @@ class TaskProcessor:
         end_time: Optional[float] = None,
         language: Optional[str] = None,
         task: str = 'transcribe',
-        model: str = 'CWTchen/Belle-whisper-large-v3-zh-punct-ct2-faster-whisper-float32',
+        model: str = 'CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32',
         # 新增進階參數
         vad_onset: float = 0.5,
         vad_offset: float = 0.363,
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None,
-        enable_confidence_score: bool = False
+        enable_confidence_score: bool = False,
+        compute_type: Optional[str] = None,
     ):
         """
         處理轉錄任務（同步版本，在後台線程中運行）
@@ -613,7 +602,8 @@ class TaskProcessor:
             vad_offset: VAD 語音結束閾值
             min_speakers: 最小語者數
             max_speakers: 最大語者數
-            enable_confidence_score: 是否啟用信心分數輸出
+            enable_confidence_score: 是否啟用信心分數輸出,
+            compute_type: 計算類型 (float32, int8, float16)
         """
         try:
             # 檢查是否被取消
@@ -627,22 +617,30 @@ class TaskProcessor:
                 progress=0.0,
                 current_stage='載入 Whisper 模型'
             )
-
-            # 自動選擇 compute_type 以優化記憶體使用
-            if self.device == "cuda":
-                if "float32" in model.lower():
-                    compute_type = "float32"
-                    beam_size = 1
-                elif "int8" in model.lower():
+            if compute_type is None:
+                # 自動選擇 compute_type 以優化記憶體使用
+                if self.device == "cuda":
+                    if "float32" in model.lower():
+                        compute_type = "float32"
+                        beam_size = 1
+                    elif "int8" in model.lower():
+                        compute_type = "int8"
+                        beam_size = 10
+                    else:
+                        compute_type = "float16"
+                        beam_size = 5
+                else:
+                    # CPU 使用 int8 以減少 RAM 使用
                     compute_type = "int8"
+                    beam_size = 1
+            else:
+                compute_type = compute_type
+                if compute_type == "float32":
+                    beam_size = 1
+                elif compute_type == "int8":
                     beam_size = 10
                 else:
-                    compute_type = "float16"
                     beam_size = 5
-            else:
-                # CPU 使用 int8 以減少 RAM 使用
-                compute_type = "int8"
-                beam_size = 1
 
             self.load_whisper_model(model, compute_type)
 
@@ -669,7 +667,7 @@ class TaskProcessor:
             if self.check_cancelled(task_id):
                 return
             
-            # 卸載語者分離模型以節省 VRAM
+            # 卸載語者分離模型以節省 VRAM（保留 Whisper 模型）
             self.unload_diarization_model()
 
             # 語音轉文字
@@ -688,12 +686,9 @@ class TaskProcessor:
                 "min_silence_duration_ms": 500
             }
 
-            # 如果啟用信心分數或詞級時間戳，都需要 Whisper 生成詞級資料
-            # 在某些 Whisper 實現中，word_timestamps 可以是 True 或 "word"
-            # 測試發現使用 True 即可正確返回詞級資料
-            need_word_timestamps = enable_confidence_score
-            
-            print(f"📝 word_timestamps 設定: {need_word_timestamps}")
+            print(f"📝 word_timestamps 設定: {enable_confidence_score == 1}")
+
+            word_timestamps = enable_confidence_score == 1
             
             segments, info = self.whisper_model.transcribe(
                 audio=str(converted_audio_path),
@@ -702,7 +697,7 @@ class TaskProcessor:
                 beam_size=beam_size,  # 減少 beam size 以降低記憶體使用
                 vad_filter=True,  # 啟用 VAD 過濾靜音片段
                 vad_parameters=vad_parameters,  # 使用進階 VAD 參數
-                word_timestamps=need_word_timestamps,  # True 即可啟用詞級時間戳
+                word_timestamps=word_timestamps,  # True 即可啟用詞級時間戳
                 log_progress=True,
             )
             
@@ -801,7 +796,7 @@ class TaskProcessor:
             diarization_success = False
 
             if enable_diarization:
-                self.unload_whisper_model()
+                self.unload_model()
 
                 try:
                     # 載入語者分離模型
