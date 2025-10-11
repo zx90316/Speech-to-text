@@ -41,7 +41,7 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
   const [minSpeakers, setMinSpeakers] = useState<number | undefined>(undefined);
   const [maxSpeakers, setMaxSpeakers] = useState<number | undefined>(undefined);
   const [enableConfidenceScore, setEnableConfidenceScore] = useState(true);
-  const [computeType, setComputeType] = useState<string>('float32');
+  const [computeType, setComputeType] = useState<string>('default');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -247,6 +247,7 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
             disabled={disabled}
           >
             <option value="CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32">CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32</option>
+            <option value="XA9/Belle-faster-whisper-large-v3-zh-punct">XA9/Belle-faster-whisper-large-v3-zh-punct</option>
           </select>
         </div>
 
@@ -258,6 +259,7 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
             onChange={(e) => setComputeType(e.target.value)}
             disabled={disabled}
           >
+            <option value="default">自動</option>
             <option value="float32">float32 (慢，但精度高)</option>
             <option value="float16">float16 (快，但精度低)</option>
             <option value="int8">int8 (最快，但精度最低)</option>

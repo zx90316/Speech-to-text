@@ -92,7 +92,7 @@ class TaskProcessor:
         self.current_task_id = None
         self._cancelled = False
     
-    def load_whisper_model(self, model_name: str ,compute_type: str = "float16"):
+    def load_whisper_model(self, model_name: str ,compute_type: str = "default"):
         """載入 Whisper 模型（確保只有一個模型實例）"""
         if self.whisper_model is not None and self.current_model_name == model_name:
             # 模型已載入且相同，無需重新載入
@@ -617,30 +617,15 @@ class TaskProcessor:
                 progress=0.0,
                 current_stage='載入 Whisper 模型'
             )
-            if compute_type is None:
-                # 自動選擇 compute_type 以優化記憶體使用
-                if self.device == "cuda":
-                    if "float32" in model.lower():
-                        compute_type = "float32"
-                        beam_size = 1
-                    elif "int8" in model.lower():
-                        compute_type = "int8"
-                        beam_size = 10
-                    else:
-                        compute_type = "float16"
-                        beam_size = 5
-                else:
-                    # CPU 使用 int8 以減少 RAM 使用
-                    compute_type = "int8"
-                    beam_size = 1
+
+            if compute_type == "float32":
+                beam_size = 1
+            elif compute_type == "int8":
+                beam_size = 10
+            elif compute_type == "float16":
+                beam_size = 5
             else:
-                compute_type = compute_type
-                if compute_type == "float32":
-                    beam_size = 1
-                elif compute_type == "int8":
-                    beam_size = 10
-                else:
-                    beam_size = 5
+                beam_size = 5
 
             self.load_whisper_model(model, compute_type)
 
