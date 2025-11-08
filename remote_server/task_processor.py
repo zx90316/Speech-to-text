@@ -134,17 +134,29 @@ class TaskProcessor:
 
     def unload_model(self):
         """卸載所有模型以釋放 VRAM"""
+        import gc
         if not self.diarization_loaded and self.whisper_model is None:
             return
 
         print("正在卸載所有模型以釋放 VRAM...")
         if self.diarization_model is not None:
+            try:
+                if hasattr(self.diarization_model, 'to'):
+                    self.diarization_model.to('cpu')
+            except Exception as e:
+                print(f"語者分離模型移到 CPU 失敗: {e}")
             del self.diarization_model
             self.diarization_model = None
         if self.whisper_model is not None:
+            try:
+                if hasattr(self.whisper_model, 'to'):
+                    self.whisper_model.to('cpu')
+            except Exception as e:
+                print(f"Whisper 模型移到 CPU 失敗: {e}")
             del self.whisper_model
             self.whisper_model = None
 
+        gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
