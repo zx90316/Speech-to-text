@@ -2,11 +2,10 @@
  * 任務歷史組件
  */
 import { useEffect, useState } from 'react';
-import { History, RefreshCw, Clock, CheckCircle2, XCircle, Loader2, Trash2 } from 'lucide-react';
+import { History, RefreshCw, Clock, CheckCircle2, XCircle, Loader2, Trash2, Lock } from 'lucide-react';
 import { api } from '../api';
 import { getStoredTaskIds, removeTaskId } from '../utils/taskStorage';
-import { getVerifiedEmail, saveVerifiedEmail, clearVerifiedEmail } from '../utils/emailStorage';
-import { EmailVerification } from './EmailVerification';
+import { getVerifiedEmail } from '../utils/emailStorage';
 import type { Task } from '../types';
 
 interface TaskHistoryProps {
@@ -62,23 +61,23 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
     }
   };
 
-  const handleEmailVerified = (email: string) => {
-    saveVerifiedEmail(email);
-    setVerifiedEmail(email);
-    loadTasks(email);
-  };
-
   // 初始加載：如果有已驗證的郵箱，自動加載任務
   useEffect(() => {
-    if (verifiedEmail) {
-      loadTasks(verifiedEmail);
+    const email = getVerifiedEmail();
+    if (email) {
+      setVerifiedEmail(email);
+      loadTasks(email);
     }
   }, []);
 
   // 刷新觸發：當 refreshTrigger 變化時重新加載
   useEffect(() => {
-    if (verifiedEmail && refreshTrigger > 0) {
-      loadTasks(verifiedEmail);
+    const email = getVerifiedEmail();
+    if (email) {
+      setVerifiedEmail(email);
+      if (refreshTrigger > 0) {
+        loadTasks(email);
+      }
     }
   }, [refreshTrigger]);
 
@@ -161,7 +160,11 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
       </div>
 
       {!verifiedEmail ? (
-        <EmailVerification onVerified={handleEmailVerified} />
+        <div className="locked-state">
+          <Lock size={48} className="lock-icon" />
+          <p>請先在左側「語音轉文字」區塊驗證您的電子郵件</p>
+          <p className="sub-text">驗證後即可查看任務歷史</p>
+        </div>
       ) : loading ? (
         <div className="loading-state">
           <Loader2 className="spin" size={32} />
@@ -171,16 +174,6 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
         <>
           <div className="verified-email-badge">
             ✓ 查詢郵箱: {verifiedEmail}
-            <button
-              className="change-email-btn"
-              onClick={() => {
-                clearVerifiedEmail();
-                setVerifiedEmail(null);
-                setTasks([]);
-              }}
-            >
-              更改
-            </button>
           </div>
 
       {tasks.length === 0 ? (

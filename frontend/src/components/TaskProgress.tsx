@@ -138,6 +138,19 @@ export function TaskProgress({ taskId, onClose, onComplete }: TaskProgressProps)
             <div>
               <p className="status-text">處理中</p>
               <p className="status-detail">{currentStage}</p>
+              {progressEvent?.asr_progress && (
+                <div className="asr-progress-detail">
+                  <div className="asr-progress-bar">
+                    <div className="asr-bar-fill" style={{ width: `${progressEvent.asr_progress.time_progress_pct}%` }} />
+                  </div>
+                  <p className="asr-progress-text">
+                    {progressEvent.asr_progress.time_progress_pct.toFixed(1)}% | {' '}
+                    {progressEvent.asr_progress.processed_time.toFixed(2)}s / {' '}
+                    {progressEvent.asr_progress.total_time?.toFixed(2) || '?'}s {' '}
+                    ({progressEvent.asr_progress.segment_count} 個片段)
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         )}

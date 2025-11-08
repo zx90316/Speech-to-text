@@ -160,7 +160,10 @@ async def create_task(
     min_speakers: Optional[int] = Query(None, ge=1, description="最小語者數"),
     max_speakers: Optional[int] = Query(None, ge=1, description="最大語者數"),
     enable_confidence_score: bool = Query(False, description="是否啟用信心分數輸出"),
-    compute_type: Optional[str] = Query(None, description="計算類型 (float32, int8, float16)")
+    compute_type: Optional[str] = Query(None, description="計算類型 (float32, int8, float16)"),
+    # LLM 校對參數
+    enable_llm_correction: bool = Query(False, description="是否啟用 LLM 文本校對"),
+    llm_model: Optional[str] = Query(None, description="LLM 模型 (gemma3:4b, qwen3:4b, gpt-oss:20b)")
 ):
     """
     提交新的語音轉文字任務
@@ -221,7 +224,9 @@ async def create_task(
         min_speakers=min_speakers,
         max_speakers=max_speakers,
         enable_confidence_score=enable_confidence_score,
-        compute_type=compute_type
+        compute_type=compute_type,
+        enable_llm_correction=enable_llm_correction,
+        llm_model=llm_model
     )
 
     # 保存上傳的檔案到臨時目錄
@@ -320,7 +325,11 @@ async def stream_task_progress(task_id: str):
                     "has_result": task['status'] == 'completed',
                     "timestamp": datetime.now().isoformat()
                 }
-                
+
+                # 如果有 ASR 進度信息，也一併推送
+                if task.get('asr_progress'):
+                    event_data['asr_progress'] = task['asr_progress']
+
                 # 如果有部分結果，也一併推送
                 if task.get('partial_result'):
                     event_data['partial_result'] = task['partial_result']

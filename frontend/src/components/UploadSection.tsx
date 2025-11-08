@@ -22,12 +22,15 @@ interface UploadSectionProps {
     minSpeakers?: number,
     maxSpeakers?: number,
     enableConfidenceScore?: boolean,
-    computeType?: string
+    computeType?: string,
+    enableLlmCorrection?: boolean,
+    llmModel?: string
   ) => void;
+  onEmailVerified?: () => void;
   disabled?: boolean;
 }
 
-export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
+export function UploadSection({ onUpload, onEmailVerified, disabled }: UploadSectionProps) {
   const [verifiedEmail, setVerifiedEmail] = useState<string | null>(getVerifiedEmail());
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [enableDiarization, setEnableDiarization] = useState(true);
@@ -47,11 +50,19 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
   const [enableConfidenceScore, setEnableConfidenceScore] = useState(true);
   const [computeType, setComputeType] = useState<string>('default');
 
+  // LLM 校對參數
+  const [enableLlmCorrection, setEnableLlmCorrection] = useState(false);
+  const [llmModel, setLlmModel] = useState<string>('gemma3:4b');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleEmailVerified = (email: string) => {
     saveVerifiedEmail(email);
     setVerifiedEmail(email);
+    // 通知父組件驗證成功，以便 TaskHistory 可以解鎖
+    if (onEmailVerified) {
+      onEmailVerified();
+    }
   };
 
   const handleTimeRangeChange = (start: number, end: number) => {
@@ -117,7 +128,9 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
         minSpeakers,
         maxSpeakers,
         enableConfidenceScore,
-        computeType || undefined
+        computeType || undefined,
+        enableLlmCorrection,
+        llmModel
       );
       setSelectedFile(null);
       setStartTime(undefined);
@@ -386,6 +399,37 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
                 <span>啟用信心分數輸出</span>
               </label>
             </div>
+
+            <div className="advanced-row">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={enableLlmCorrection}
+                  onChange={(e) => setEnableLlmCorrection(e.target.checked)}
+                  disabled={disabled}
+                />
+                <span>啟用 LLM 文本校對</span>
+              </label>
+            </div>
+
+            {enableLlmCorrection && (
+              <div className="advanced-row">
+                <div className="param-group">
+                  <label htmlFor="llmModel">LLM 模型：</label>
+                  <select
+                    id="llmModel"
+                    value={llmModel}
+                    onChange={(e) => setLlmModel(e.target.value)}
+                    disabled={disabled}
+                  >
+                    <option value="gemma3:4b">gemma3:4b (推薦)</option>
+                    <option value="qwen3:4b">qwen3:4b</option>
+                    <option value="gpt-oss:20b">gpt-oss:20b</option>
+                  </select>
+                  <span className="param-hint">使用 LLM 對轉錄結果進行校對改正</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

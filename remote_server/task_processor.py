@@ -21,6 +21,7 @@ from pyannote.audio.pipelines.utils.hook import ProgressHook
 
 from memory_storage import memory_manager
 from email_service import email_service
+from ollama_service import ollama_service
 
 # 載入環境變數
 load_dotenv()
@@ -680,12 +681,13 @@ class TaskProcessor:
 
             # 語音轉文字
             memory_manager.update_task_status(
-                task_id, 
-                'processing', 
-                progress=30.0, 
-                current_stage='語音轉文字 (ASR)'
+                task_id,
+                'processing',
+                progress=30.0,
+                current_stage='語音轉文字 (ASR)',
+                asr_progress=None
             )
-            
+
             # 使用優化參數以避免 OOM
             # 構建 VAD 參數（faster-whisper 使用的參數名稱）
             vad_parameters = {
@@ -697,7 +699,7 @@ class TaskProcessor:
             print(f"📝 word_timestamps 設定: {enable_confidence_score == 1}")
 
             word_timestamps = enable_confidence_score == 1
-            
+
             segments, info = self.whisper_model.transcribe(
                 audio=str(converted_audio_path),
                 language=language,
@@ -708,6 +710,10 @@ class TaskProcessor:
                 word_timestamps=word_timestamps,  # True 即可啟用詞級時間戳
                 log_progress=True,
             )
+
+            # 獲取音訊總時長用於進度計算
+            audio_duration = info.duration if hasattr(info, 'duration') else None
+            print(f"🎵 音訊總時長: {audio_duration:.2f}s" if audio_duration else "🎵 音訊總時長: 未知")
             
             timestamp_texts = []
             asr_lines = []
@@ -717,6 +723,7 @@ class TaskProcessor:
             # 處理 segments（這是一個生成器）
             segment_count = 0
             segments_list = []  # 儲存所有 segment 供後續詞級對齊使用
+            last_processed_time = 0.0  # 追蹤已處理的音訊時間
 
             for segment in segments:
                 # 檢查是否被取消
@@ -726,6 +733,9 @@ class TaskProcessor:
                 segment_count += 1
                 converted_text = cc.convert(segment.text)
                 timestamp_texts.append((Segment(segment.start, segment.end), converted_text ,segment.words))
+
+                # 更新已處理的音訊時間
+                last_processed_time = segment.end
 
                 # 計算信心分數百分比
                 confidence_pct = None
@@ -771,15 +781,31 @@ class TaskProcessor:
 
                 segments_list.append(seg_data)
                 partial_result.append(seg_data)
-                
+
+                # 計算基於時間的進度百分比
+                time_progress_pct = 0
+                if audio_duration and audio_duration > 0:
+                    time_progress_pct = min((last_processed_time / audio_duration) * 100, 100.0)
+
                 # 每處理 5 個片段更新一次進度
-                if segment_count % 5 == 0:
-                    current_progress = min(30.0 + (segment_count * 0.5), 55.0)
+                if segment_count % 1 == 0:
+                    # 進度從 30% 到 55%，基於已處理的音訊時間
+                    current_progress = min(30.0 + (time_progress_pct * 0.25), 55.0)
+
+                    # 構建詳細的 ASR 進度信息
+                    asr_progress_info = {
+                        'processed_time': round(last_processed_time, 2),
+                        'total_time': round(audio_duration, 2) if audio_duration else None,
+                        'segment_count': segment_count,
+                        'time_progress_pct': round(time_progress_pct, 1)
+                    }
+
                     memory_manager.update_task_status(
-                        task_id, 
-                        'processing', 
-                        progress=current_progress, 
-                        current_stage=f'語音轉文字 (已處理 {segment_count} 個片段)'
+                        task_id,
+                        'processing',
+                        progress=current_progress,
+                        current_stage=f'語音轉文字 (ASR)',
+                        asr_progress=asr_progress_info
                     )
                     memory_manager.update_task_result(task_id, partial_result)
             
@@ -949,6 +975,54 @@ class TaskProcessor:
                     with open(transcript_path, 'r', encoding='utf-8') as f:
                         transcript_text = f.read()
 
+                # LLM 校對（如果啟用）
+                corrected_text = None
+                llm_comparison_html_path = None
+                if task.get('enable_llm_correction', False):
+                    try:
+                        memory_manager.update_task_status(
+                            task_id,
+                            'completed',
+                            progress=95.0,
+                            current_stage='LLM 文本校對中'
+                        )
+                        print(f"🤖 開始 LLM 校對，使用模型: {task.get('llm_model', 'gemma3:4b')}")
+
+                        # 執行校對
+                        def llm_progress(msg):
+                            print(f"  LLM: {msg}")
+
+                        correction_result = ollama_service.correct_text(
+                            text=transcript_text,
+                            model=task.get('llm_model', 'gemma3:4b'),
+                            has_diarization=diarization_success,
+                            progress_callback=llm_progress
+                        )
+
+                        corrected_text = correction_result.get('corrected', transcript_text)
+
+                        # 生成校對對比 HTML
+                        llm_html_path = result_dir / "llm_correction_comparison.html"
+                        llm_html_content = ollama_service.generate_comparison_html(
+                            original=transcript_text,
+                            corrected=corrected_text,
+                            has_diarization=diarization_success
+                        )
+                        with open(llm_html_path, 'w', encoding='utf-8') as f:
+                            f.write(llm_html_content)
+                        llm_comparison_html_path = str(llm_html_path)
+
+                        # 保存校正後的文本
+                        corrected_path = result_dir / "transcript_corrected.txt"
+                        with open(corrected_path, 'w', encoding='utf-8') as f:
+                            f.write(corrected_text)
+
+                        print(f"✅ LLM 校對完成")
+
+                    except Exception as llm_error:
+                        print(f"⚠️ LLM 校對失敗: {llm_error}")
+                        corrected_text = None  # 失敗時不使用校正版本
+
                 # 發送完成通知郵件
                 try:
                     email_success = email_service.send_completion_email(
@@ -956,8 +1030,10 @@ class TaskProcessor:
                         task_id=task_id,
                         filename=task['filename'],
                         transcript_text=transcript_text,
+                        corrected_text=corrected_text,
                         has_diarization=diarization_success,
-                        confidence_html_path=confidence_html_path
+                        confidence_html_path=confidence_html_path,
+                        llm_comparison_html_path=llm_comparison_html_path
                     )
 
                     if email_success:

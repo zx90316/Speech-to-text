@@ -124,8 +124,10 @@ class EmailService:
         task_id: str,
         filename: str,
         transcript_text: str,
+        corrected_text: Optional[str] = None,
         has_diarization: bool = False,
-        confidence_html_path: Optional[str] = None
+        confidence_html_path: Optional[str] = None,
+        llm_comparison_html_path: Optional[str] = None
     ) -> bool:
         """發送任務完成通知郵件"""
         try:
@@ -139,11 +141,17 @@ class EmailService:
             if len(transcript_text) > 500:
                 preview += "..."
 
-            # 根據是否有信心分數報告調整郵件內容
+            # 根據是否有信心分數報告和 LLM 校對調整郵件內容
             confidence_note = ""
             if confidence_html_path:
                 confidence_note = """
                 <p><strong>📊 信心分數報告：</strong>附件中包含詞級信心分數可視化 HTML 報告，在瀏覽器中打開可查看詳細的轉錄信心度分析。</p>
+                """
+
+            llm_note = ""
+            if corrected_text and llm_comparison_html_path:
+                llm_note = """
+                <p><strong>🤖 LLM 校對報告：</strong>附件中包含 LLM 校對前後對比 HTML 報告，可查看原始轉錄和校正後的文本對比。</p>
                 """
 
             body = f"""
@@ -153,7 +161,9 @@ class EmailService:
                 <p>您的音訊檔案 <strong>{filename}</strong> 已完成轉錄。</p>
                 <p><strong>任務 ID:</strong> {task_id}</p>
                 <p><strong>語者分離:</strong> {'已啟用' if has_diarization else '未啟用'}</p>
+                <p><strong>LLM 校對:</strong> {'已啟用' if corrected_text else '未啟用'}</p>
                 {confidence_note}
+                {llm_note}
 
                 <h3>轉錄結果預覽：</h3>
                 <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; white-space: pre-wrap;">
@@ -185,7 +195,7 @@ class EmailService:
                 try:
                     with open(confidence_html_path, 'r', encoding='utf-8') as f:
                         html_content = f.read()
-                    
+
                     html_attachment = MIMEBase('text', 'html')
                     html_attachment.set_payload(html_content.encode('utf-8'))
                     encoders.encode_base64(html_attachment)
@@ -197,6 +207,39 @@ class EmailService:
                     print(f"✓ 已附加信心分數可視化 HTML: {confidence_html_path}")
                 except Exception as html_error:
                     print(f"⚠️ 附加 HTML 文件失敗: {html_error}")
+
+            # 附加校正後的文本檔案（如果有 LLM 校對）
+            if corrected_text:
+                try:
+                    corrected_attachment = MIMEBase('text', 'plain')
+                    corrected_attachment.set_payload(corrected_text.encode('utf-8'))
+                    encoders.encode_base64(corrected_attachment)
+                    corrected_attachment.add_header(
+                        'Content-Disposition',
+                        f'attachment; filename="{task_id}_transcript_corrected.txt"'
+                    )
+                    msg.attach(corrected_attachment)
+                    print(f"✓ 已附加校正後文本: transcript_corrected.txt")
+                except Exception as corrected_error:
+                    print(f"⚠️ 附加校正文本失敗: {corrected_error}")
+
+            # 附加 LLM 校對對比 HTML（如果有）
+            if llm_comparison_html_path and os.path.exists(llm_comparison_html_path):
+                try:
+                    with open(llm_comparison_html_path, 'r', encoding='utf-8') as f:
+                        llm_html_content = f.read()
+
+                    llm_html_attachment = MIMEBase('text', 'html')
+                    llm_html_attachment.set_payload(llm_html_content.encode('utf-8'))
+                    encoders.encode_base64(llm_html_attachment)
+                    llm_html_attachment.add_header(
+                        'Content-Disposition',
+                        f'attachment; filename="{task_id}_llm_correction_comparison.html"'
+                    )
+                    msg.attach(llm_html_attachment)
+                    print(f"✓ 已附加 LLM 校對對比 HTML: {llm_comparison_html_path}")
+                except Exception as llm_html_error:
+                    print(f"⚠️ 附加 LLM HTML 文件失敗: {llm_html_error}")
 
             return self._send_email(msg)
 

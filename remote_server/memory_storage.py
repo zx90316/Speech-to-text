@@ -54,7 +54,9 @@ class MemoryTaskManager:
         min_speakers: Optional[int] = None,
         max_speakers: Optional[int] = None,
         enable_confidence_score: bool = False,
-        compute_type: Optional[str] = None
+        compute_type: Optional[str] = None,
+        enable_llm_correction: bool = False,
+        llm_model: Optional[str] = None
     ) -> Dict[str, Any]:
         """創建新任務"""
         with self.task_lock:
@@ -65,6 +67,7 @@ class MemoryTaskManager:
                 'status': 'pending',
                 'progress': 0.0,
                 'current_stage': None,
+                'asr_progress': None,
                 'enable_diarization': enable_diarization,
                 'start_time': start_time,
                 'end_time': end_time,
@@ -77,6 +80,8 @@ class MemoryTaskManager:
                 'max_speakers': max_speakers,
                 'enable_confidence_score': enable_confidence_score,
                 'compute_type': compute_type,
+                'enable_llm_correction': enable_llm_correction,
+                'llm_model': llm_model or 'gemma3:4b',
                 'created_at': datetime.now().isoformat(),
                 'started_at': None,
                 'completed_at': None,
@@ -140,7 +145,8 @@ class MemoryTaskManager:
         status: str,
         progress: Optional[float] = None,
         current_stage: Optional[str] = None,
-        error_message: Optional[str] = None
+        error_message: Optional[str] = None,
+        asr_progress: Optional[Dict[str, Any]] = None
     ):
         """更新任務狀態"""
         with self.task_lock:
@@ -152,6 +158,9 @@ class MemoryTaskManager:
 
             if progress is not None:
                 task['progress'] = progress
+
+            if asr_progress is not None:
+                task['asr_progress'] = asr_progress
 
             if current_stage is not None:
                 task['current_stage'] = current_stage

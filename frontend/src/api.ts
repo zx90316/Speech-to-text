@@ -3,8 +3,43 @@
  */
 import axios from 'axios';
 import type { Task, TaskCreateResponse, TaskHistory, ServiceStats } from './types';
+import { clearVerifiedEmail } from './utils/emailStorage';
 
 const API_BASE_URL = '/api';
+
+// 添加 axios 響應攔截器，處理 403 錯誤
+let hasShown403Alert = false; // 防止重複彈窗
+let alertTimeout: NodeJS.Timeout | null = null;
+
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 403 && !hasShown403Alert) {
+      hasShown403Alert = true;
+
+      // 伺服器記憶已被重置，清除本地驗證信息
+      clearVerifiedEmail();
+
+      // 清除之前的 timeout（如果有）
+      if (alertTimeout) {
+        clearTimeout(alertTimeout);
+      }
+
+      // 延遲彈窗和刷新，避免多次觸發
+      alertTimeout = setTimeout(() => {
+        const errorMessage = error.response?.data?.detail || '伺服器已重啟，驗證信息已失效';
+        alert(`🔒 驗證已失效\n\n${errorMessage}\n\n頁面將自動刷新，請重新驗證您的電子郵件。`);
+
+        // 刷新頁面以返回驗證界面
+        window.location.reload();
+
+        hasShown403Alert = false;
+        alertTimeout = null;
+      }, 100);
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const api = {
   /**
@@ -48,7 +83,9 @@ export const api = {
     minSpeakers?: number,
     maxSpeakers?: number,
     enableConfidenceScore?: boolean,
-    computeType?: string
+    computeType?: string,
+    enableLlmCorrection?: boolean,
+    llmModel?: string
   ): Promise<TaskCreateResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -68,6 +105,8 @@ export const api = {
     if (maxSpeakers !== undefined) params.max_speakers = maxSpeakers;
     if (enableConfidenceScore !== undefined) params.enable_confidence_score = enableConfidenceScore;
     if (computeType !== undefined) params.compute_type = computeType;
+    if (enableLlmCorrection !== undefined) params.enable_llm_correction = enableLlmCorrection;
+    if (llmModel) params.llm_model = llmModel;
 
     const response = await axios.post<TaskCreateResponse>(
       `${API_BASE_URL}/tasks`,

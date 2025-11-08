@@ -30,6 +30,13 @@ export interface TaskHistory {
   tasks: Task[];
 }
 
+export interface AsrProgress {
+  processed_time: number;
+  total_time: number | null;
+  segment_count: number;
+  time_progress_pct: number;
+}
+
 export interface ProgressEvent {
   status: string;
   progress: number;
@@ -38,6 +45,7 @@ export interface ProgressEvent {
   error_message: string | null;
   has_result: boolean;
   timestamp: string;
+  asr_progress?: AsrProgress;
   partial_result?: Array<{
     start: number;
     end: number;

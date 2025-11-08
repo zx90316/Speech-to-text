@@ -33,7 +33,9 @@ function App() {
     minSpeakers?: number,
     maxSpeakers?: number,
     enableConfidenceScore?: boolean,
-    computeType?: string
+    computeType?: string,
+    enableLlmCorrection?: boolean,
+    llmModel?: string
   ) => {
     setUploading(true);
     try {
@@ -51,7 +53,9 @@ function App() {
         minSpeakers,
         maxSpeakers,
         enableConfidenceScore,
-        computeType
+        computeType,
+        enableLlmCorrection,
+        llmModel
       );
       setCurrentTaskId(response.task_id);
       // 儲存任務 ID 到 localStorage
@@ -78,6 +82,11 @@ function App() {
 
   const handleSelectHistoryTask = useCallback((taskId: string) => {
     setCurrentTaskId(taskId);
+  }, []);
+
+  const handleEmailVerified = useCallback(() => {
+    // 驗證成功後觸發刷新，讓 TaskHistory 自動解鎖
+    setRefreshTrigger(prev => prev + 1);
   }, []);
 
   if (viewMode === 'admin') {
@@ -120,6 +129,7 @@ function App() {
           <div className="left-panel">
             <UploadSection
               onUpload={handleUpload}
+              onEmailVerified={handleEmailVerified}
               disabled={uploading}
             />
 
