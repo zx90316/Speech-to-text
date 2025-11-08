@@ -143,7 +143,7 @@ class TaskProcessor:
         if self.diarization_model is not None:
             try:
                 if hasattr(self.diarization_model, 'to'):
-                    self.diarization_model.to('cpu')
+                    self.diarization_model.to(torch.device('cpu'))
             except Exception as e:
                 print(f"語者分離模型移到 CPU 失敗: {e}")
             del self.diarization_model
@@ -151,7 +151,7 @@ class TaskProcessor:
         if self.whisper_model is not None:
             try:
                 if hasattr(self.whisper_model, 'to'):
-                    self.whisper_model.to('cpu')
+                    self.whisper_model.to(torch.device('cpu'))
             except Exception as e:
                 print(f"Whisper 模型移到 CPU 失敗: {e}")
             del self.whisper_model
