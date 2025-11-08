@@ -19,13 +19,16 @@ from dotenv import load_dotenv
 
 from pyannote.audio.pipelines.utils.hook import ProgressHook
 
-from database import db_manager
+from memory_storage import memory_manager
+from email_service import email_service
 
 # 載入環境變數
 load_dotenv()
 
 # 初始化繁簡轉換器
 cc = OpenCC('s2twp')
+
+# 注意：本檔案中所有的 memory_manager 都應替換為 memory_manager
 
 # 添加 FFmpeg 路徑
 ffmpeg_path = Path(__file__).parent.parent / "ffmpeg-7.1.1-full_build-shared" / "bin"
@@ -60,7 +63,7 @@ class CustomProgressHook:
             step_progress = (completed / total) if total > 0 else 0
             current_progress = self.start_progress + (step_progress * self.progress_range)
 
-            db_manager.update_task_status(
+            memory_manager.update_task_status(
                 self.task_id,
                 'processing',
                 progress=current_progress,
@@ -68,7 +71,7 @@ class CustomProgressHook:
             )
         else:
             # 無法取得詳細進度，顯示步驟名稱
-            db_manager.update_task_status(
+            memory_manager.update_task_status(
                 self.task_id,
                 'processing',
                 progress=self.start_progress + (self.progress_range * 0.5),
@@ -166,7 +169,7 @@ class TaskProcessor:
     
     def check_cancelled(self, task_id: str) -> bool:
         """檢查任務是否被取消"""
-        task = db_manager.get_task(task_id)
+        task = memory_manager.get_task(task_id)
         return task and task['status'] == 'canceled'
     
     def convert_audio_to_wav(self, input_path: str, output_path: str, start_time: Optional[float] = None, end_time: Optional[float] = None):
@@ -487,10 +490,18 @@ class TaskProcessor:
             # 如果有詞級時間戳
             if words:
                 for word_info in words:
-                    word_text = cc.convert(word_info.word)
-                    word_start = word_info.start
-                    word_end = word_info.end
-                    probability = word_info.probability
+                    # word_info 現在是字典而不是 Word 物件
+                    if isinstance(word_info, dict):
+                        word_text = cc.convert(word_info['word'])
+                        word_start = word_info['start']
+                        word_end = word_info['end']
+                        probability = word_info['probability']
+                    else:
+                        # 向後兼容：如果是 Word 物件
+                        word_text = cc.convert(word_info.word)
+                        word_start = word_info.start
+                        word_end = word_info.end
+                        probability = word_info.probability
                     
                     # 轉換為百分比
                     confidence_pct = probability * 100
@@ -611,7 +622,7 @@ class TaskProcessor:
                 return
 
             # 載入 Whisper 模型
-            db_manager.update_task_status(
+            memory_manager.update_task_status(
                 task_id,
                 'processing',
                 progress=0.0,
@@ -638,7 +649,7 @@ class TaskProcessor:
             result_dir.mkdir(parents=True, exist_ok=True)
 
             # 轉換音訊格式
-            db_manager.update_task_status(
+            memory_manager.update_task_status(
                 task_id,
                 'processing',
                 progress=20.0,
@@ -656,7 +667,7 @@ class TaskProcessor:
             self.unload_diarization_model()
 
             # 語音轉文字
-            db_manager.update_task_status(
+            memory_manager.update_task_status(
                 task_id, 
                 'processing', 
                 progress=30.0, 
@@ -752,15 +763,15 @@ class TaskProcessor:
                 # 每處理 5 個片段更新一次進度
                 if segment_count % 5 == 0:
                     current_progress = min(30.0 + (segment_count * 0.5), 55.0)
-                    db_manager.update_task_status(
+                    memory_manager.update_task_status(
                         task_id, 
                         'processing', 
                         progress=current_progress, 
                         current_stage=f'語音轉文字 (已處理 {segment_count} 個片段)'
                     )
-                    db_manager.update_task_result(task_id, "", partial_result)
+                    memory_manager.update_task_result(task_id, partial_result)
             
-            db_manager.update_task_status(
+            memory_manager.update_task_status(
                 task_id,
                 'processing',
                 progress=60.0,
@@ -785,7 +796,7 @@ class TaskProcessor:
 
                 try:
                     # 載入語者分離模型
-                    db_manager.update_task_status(
+                    memory_manager.update_task_status(
                         task_id,
                         'processing',
                         progress=65.0,
@@ -793,7 +804,7 @@ class TaskProcessor:
                     )
                     self.load_diarization_model()
 
-                    db_manager.update_task_status(
+                    memory_manager.update_task_status(
                         task_id,
                         'processing',
                         progress=70.0,
@@ -816,7 +827,7 @@ class TaskProcessor:
                         )
                     diarization_result = diarization_output.speaker_diarization
 
-                    db_manager.update_task_status(
+                    memory_manager.update_task_status(
                         task_id,
                         'processing',
                         progress=85.0,
@@ -833,9 +844,21 @@ class TaskProcessor:
                             'start': segment.start,
                             'end': segment.end,
                             'speaker': spk,
-                            'text': sent,
-                            'words': words
+                            'text': sent
                         }
+                        
+                        # 轉換 Word 物件為可 JSON 序列化的字典
+                        if words:
+                            result_dict['words'] = [
+                                {
+                                    'word': word.word,
+                                    'start': word.start,
+                                    'end': word.end,
+                                    'probability': word.probability
+                                }
+                                for word in words
+                            ]
+                        
                         if confidence is not None:
                             result_dict['confidence'] = confidence
                             formatted_line = f"[{segment.start:6.2f}s -> {segment.end:6.2f}s] ({confidence:.1f}%) {spk}: {sent}"
@@ -856,7 +879,7 @@ class TaskProcessor:
                     # 語者分離失敗，記錄錯誤並使用 ASR 結果
                     print(f"語者分離失敗: {str(e)}")
                     print("將僅返回 ASR 轉錄結果")
-                    db_manager.update_task_status(
+                    memory_manager.update_task_status(
                         task_id,
                         'processing',
                         progress=65.0,
@@ -878,6 +901,7 @@ class TaskProcessor:
                 return
             
             # 生成信心度視覺化 HTML（如果有信心度資料）
+            confidence_html_path = None
             if enable_confidence_score:
                 try:
                     html_path = result_dir / "confidence_visualization.html"
@@ -886,29 +910,65 @@ class TaskProcessor:
                         output_path=str(html_path),
                         enable_diarization=diarization_success
                     )
+                    confidence_html_path = str(html_path)
                 except Exception as e:
                     print(f"⚠️ 警告：生成信心度 HTML 失敗: {str(e)}")
                     # 不影響主任務，繼續執行
             
-            # 任務完成
-            db_manager.update_task_status(
-                task_id, 
-                'completed', 
-                progress=100.0, 
-                current_stage='處理完成'
+            # 任務完成 - 準備發送郵件
+            memory_manager.update_task_status(
+                task_id,
+                'completed',
+                progress=100.0,
+                current_stage='發送結果郵件'
             )
-            db_manager.update_task_result(
-                task_id, 
-                str(result_dir), 
-                partial_result
-            )
-            
+            memory_manager.update_task_result(task_id, partial_result)
+
+            # 獲取任務資訊以取得郵箱和檔名
+            task = memory_manager.get_task_full(task_id)
+            if task:
+                # 讀取轉錄結果文字
+                transcript_path = result_dir / "transcript_with_speakers.txt" if diarization_success else result_dir / "transcript.txt"
+                if not transcript_path.exists():
+                    transcript_path = result_dir / "transcript.txt"
+
+                transcript_text = ""
+                if transcript_path.exists():
+                    with open(transcript_path, 'r', encoding='utf-8') as f:
+                        transcript_text = f.read()
+
+                # 發送完成通知郵件
+                try:
+                    email_success = email_service.send_completion_email(
+                        to_email=task['email'],
+                        task_id=task_id,
+                        filename=task['filename'],
+                        transcript_text=transcript_text,
+                        has_diarization=diarization_success,
+                        confidence_html_path=confidence_html_path
+                    )
+
+                    if email_success:
+                        print(f"✅ 任務 {task_id} 完成，結果已發送至 {task['email']}")
+                    else:
+                        print(f"⚠️ 任務 {task_id} 完成，但郵件發送失敗")
+
+                except Exception as email_error:
+                    print(f"⚠️ 發送郵件時發生錯誤: {email_error}")
+
+                # 無論郵件是否成功，都清理臨時檔案
+                try:
+                    memory_manager.cleanup_task_files(task_id)
+                    print(f"🗑️ 任務 {task_id} 的臨時檔案已清理")
+                except Exception as cleanup_error:
+                    print(f"⚠️ 清理檔案時發生錯誤: {cleanup_error}")
+
         except Exception as e:
             error_msg = str(e)
             print(f"任務 {task_id} 處理失敗: {error_msg}")
-            db_manager.update_task_status(
-                task_id, 
-                'failed', 
+            memory_manager.update_task_status(
+                task_id,
+                'failed',
                 error_message=error_msg
             )
 

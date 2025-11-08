@@ -1,12 +1,15 @@
 /**
  * 上傳區域組件
  */
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Upload, FileAudio, X } from 'lucide-react';
 import { AudioPlayer } from './AudioPlayer';
+import { EmailVerification } from './EmailVerification';
+import { getVerifiedEmail, saveVerifiedEmail, clearVerifiedEmail } from '../utils/emailStorage';
 
 interface UploadSectionProps {
   onUpload: (
+    email: string,
     file: File,
     enableDiarization: boolean,
     startTime?: number,
@@ -25,6 +28,7 @@ interface UploadSectionProps {
 }
 
 export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
+  const [verifiedEmail, setVerifiedEmail] = useState<string | null>(getVerifiedEmail());
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [enableDiarization, setEnableDiarization] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
@@ -44,6 +48,11 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
   const [computeType, setComputeType] = useState<string>('default');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleEmailVerified = (email: string) => {
+    saveVerifiedEmail(email);
+    setVerifiedEmail(email);
+  };
 
   const handleTimeRangeChange = (start: number, end: number) => {
     setStartTime(start);
@@ -93,8 +102,9 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
   };
 
   const handleSubmit = () => {
-    if (selectedFile) {
+    if (selectedFile && verifiedEmail) {
       onUpload(
+        verifiedEmail,
         selectedFile,
         enableDiarization,
         startTime,
@@ -130,13 +140,30 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
         <FileAudio size={24} />
         語音轉文字
       </h2>
-      
-      <div
-        className={`drop-zone ${isDragging ? 'dragging' : ''} ${disabled ? 'disabled' : ''}`}
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onClick={() => !disabled && fileInputRef.current?.click()}
+
+      {!verifiedEmail ? (
+        <EmailVerification onVerified={handleEmailVerified} />
+      ) : (
+        <>
+          <div className="verified-email-badge">
+            ✓ 已驗證: {verifiedEmail}
+            <button
+              className="change-email-btn"
+              onClick={() => {
+                clearVerifiedEmail();
+                setVerifiedEmail(null);
+              }}
+            >
+              更改
+            </button>
+          </div>
+
+          <div
+            className={`drop-zone ${isDragging ? 'dragging' : ''} ${disabled ? 'disabled' : ''}`}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onClick={() => !disabled && fileInputRef.current?.click()}
       >
         <input
           ref={fileInputRef}
@@ -363,14 +390,16 @@ export function UploadSection({ onUpload, disabled }: UploadSectionProps) {
         )}
       </div>
 
-      <button
-        className="submit-btn"
-        onClick={handleSubmit}
-        disabled={!selectedFile || disabled}
-      >
-        <Upload size={20} />
-        開始轉錄
-      </button>
+          <button
+            className="submit-btn"
+            onClick={handleSubmit}
+            disabled={!selectedFile || disabled}
+          >
+            <Upload size={20} />
+            開始轉錄
+          </button>
+        </>
+      )}
     </div>
   );
 }

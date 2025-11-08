@@ -2,9 +2,11 @@
  * 任務歷史組件
  */
 import { useEffect, useState } from 'react';
-import { History, Download, RefreshCw, Clock, CheckCircle2, XCircle, Loader2, Trash2 } from 'lucide-react';
+import { History, RefreshCw, Clock, CheckCircle2, XCircle, Loader2, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { getStoredTaskIds, removeTaskId } from '../utils/taskStorage';
+import { getVerifiedEmail, saveVerifiedEmail, clearVerifiedEmail } from '../utils/emailStorage';
+import { EmailVerification } from './EmailVerification';
 import type { Task } from '../types';
 
 interface TaskHistoryProps {
@@ -14,10 +16,10 @@ interface TaskHistoryProps {
 
 export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) {
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [clientIp, setClientIp] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [verifiedEmail, setVerifiedEmail] = useState<string | null>(getVerifiedEmail());
 
-  const loadTasks = async () => {
+  const loadTasks = async (email: string) => {
     setLoading(true);
     try {
       // 1. 從 localStorage 獲取任務
@@ -29,9 +31,8 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
         allTasks = batchResult.tasks;
       }
 
-      // 2. 從 IP 獲取任務（作為備份）
-      const history = await api.getMyTasks(20);
-      setClientIp(history.client_ip);
+      // 2. 從郵箱獲取任務
+      const history = await api.getMyTasks(email, 20);
 
       // 3. 合併兩個來源的任務，去重
       const taskMap = new Map<string, Task>();
@@ -41,7 +42,7 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
         taskMap.set(task.task_id, task);
       });
 
-      // 再加入 IP 的任務（不覆蓋已存在的）
+      // 再加入郵箱的任務（不覆蓋已存在的）
       history.tasks.forEach(task => {
         if (!taskMap.has(task.task_id)) {
           taskMap.set(task.task_id, task);
@@ -61,19 +62,24 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
     }
   };
 
+  const handleEmailVerified = (email: string) => {
+    saveVerifiedEmail(email);
+    setVerifiedEmail(email);
+    loadTasks(email);
+  };
+
+  // 初始加載：如果有已驗證的郵箱，自動加載任務
   useEffect(() => {
-    let isMounted = true;
+    if (verifiedEmail) {
+      loadTasks(verifiedEmail);
+    }
+  }, []);
 
-    const loadTasksIfMounted = async () => {
-      if (!isMounted) return;
-      await loadTasks();
-    };
-
-    loadTasksIfMounted();
-
-    return () => {
-      isMounted = false;
-    };
+  // 刷新觸發：當 refreshTrigger 變化時重新加載
+  useEffect(() => {
+    if (verifiedEmail && refreshTrigger > 0) {
+      loadTasks(verifiedEmail);
+    }
   }, [refreshTrigger]);
 
   const getStatusIcon = (status: string) => {
@@ -122,17 +128,6 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
     });
   };
 
-  const handleDownload = (taskId: string, filename: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const url = api.downloadResult(taskId, 'transcript');
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${filename}_transcript.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  };
-
   const handleDelete = async (taskId: string, filename: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm(`確定要刪除任務「${filename}」嗎？\n此操作將永久刪除任務記錄和相關檔案。`)) {
@@ -141,30 +136,15 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
         // 從 localStorage 移除
         removeTaskId(taskId);
         // 刷新任務列表
-        await loadTasks();
+        if (verifiedEmail) {
+          await loadTasks(verifiedEmail);
+        }
       } catch (error) {
         console.error('刪除任務失敗:', error);
         alert('刪除任務失敗，請稍後再試。');
       }
     }
   };
-
-  if (loading) {
-    return (
-      <div className="task-history">
-        <div className="history-header">
-          <h2 className="section-title">
-            <History size={24} />
-            任務歷史
-          </h2>
-        </div>
-        <div className="loading-state">
-          <Loader2 className="spin" size={32} />
-          <p>載入中...</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="task-history">
@@ -173,16 +153,35 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
           <History size={24} />
           任務歷史
         </h2>
-        <button className="refresh-btn" onClick={loadTasks} title="重新整理">
-          <RefreshCw size={18} />
-        </button>
+        {verifiedEmail && (
+          <button className="refresh-btn" onClick={() => loadTasks(verifiedEmail)} title="重新整理">
+            <RefreshCw size={18} />
+          </button>
+        )}
       </div>
 
-      {clientIp && (
-        <div className="client-info">
-          <span>您的 IP: {clientIp}</span>
+      {!verifiedEmail ? (
+        <EmailVerification onVerified={handleEmailVerified} />
+      ) : loading ? (
+        <div className="loading-state">
+          <Loader2 className="spin" size={32} />
+          <p>載入中...</p>
         </div>
-      )}
+      ) : (
+        <>
+          <div className="verified-email-badge">
+            ✓ 查詢郵箱: {verifiedEmail}
+            <button
+              className="change-email-btn"
+              onClick={() => {
+                clearVerifiedEmail();
+                setVerifiedEmail(null);
+                setTasks([]);
+              }}
+            >
+              更改
+            </button>
+          </div>
 
       {tasks.length === 0 ? (
         <div className="empty-state">
@@ -207,14 +206,10 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
                   </div>
                 </div>
                 <div className="task-item-actions">
-                  {task.status === 'completed' && task.has_result && (
-                    <button
-                      className="download-icon-btn"
-                      onClick={(e) => handleDownload(task.task_id, task.filename, e)}
-                      title="下載結果"
-                    >
-                      <Download size={16} />
-                    </button>
+                  {task.status === 'completed' && (
+                    <span className="completed-badge" title="結果已發送至您的郵箱">
+                      📧 已發送
+                    </span>
                   )}
                   <button
                     className="delete-icon-btn"
@@ -245,6 +240,8 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
             </div>
           ))}
         </div>
+      )}
+        </>
       )}
     </div>
   );

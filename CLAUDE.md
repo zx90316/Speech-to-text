@@ -4,11 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Whisper Speech-to-Text API service with a modern React frontend and audio preprocessing capabilities. The project consists of:
+This is a Whisper Speech-to-Text API service with **email-based verification** and a modern React frontend. The project uses **memory-based storage** instead of databases for better security and simplicity. The project consists of:
 
-- **Backend (remote_server/)**: FastAPI-based service for speech-to-text processing using Faster-Whisper and Pyannote
-- **Audio Preprocessing (remote_server/audio_preprocessor.py)**: FFmpeg-based audio enhancement engine with noise reduction, normalization, vocal enhancement, and more
-- **Frontend (frontend/)**: React + TypeScript + Vite application for uploading audio, preprocessing, and monitoring progress
+- **Backend (remote_server/)**: FastAPI-based service for speech-to-text processing using Faster-Whisper and Pyannote, with memory storage and email delivery
+- **Frontend (frontend/)**: React + TypeScript + Vite application with email verification, file upload, and progress monitoring
 
 ## Commands
 
@@ -50,10 +49,18 @@ The frontend development server runs on `http://localhost:5173` with API proxy t
 
 ### Environment Setup
 
-The backend requires a `.env` file in `remote_server/` with:
+The backend requires a `.env` file in `remote_server/` with SMTP configuration for email service:
+
 ```env
 HUGGINGFACE_TOKEN=your_huggingface_token_here
 ADMIN_TOKEN=your_admin_token_here
+
+# SMTP Email Service Configuration
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your_email@gmail.com
+SMTP_PASSWORD=your_app_password
+FROM_EMAIL=your_email@gmail.com
 ```
 
 Reference [.env.txt](.env.txt) for the template.
@@ -62,128 +69,110 @@ Reference [.env.txt](.env.txt) for the template.
 
 ### Backend Architecture (remote_server/)
 
-- **api.py**: FastAPI main application with all API endpoints (transcription + preprocessing)
-- **database.py**: SQLite database management for task tracking (tasks and preprocess_tasks tables)
+- **api.py**: FastAPI main application with all API endpoints (email verification, task submission, progress streaming)
+- **memory_storage.py**: In-memory task storage using OrderedDict (no database required)
+- **email_service.py**: SMTP-based email service for verification codes and result delivery
 - **task_processor.py**: Core speech processing logic using Faster-Whisper and Pyannote
-- **audio_preprocessor.py**: Audio preprocessing engine with FFmpeg-based filters
-- **preprocess_processor.py**: Preprocessing task queue processor
-- **whisper_api.py**: Additional Whisper-related utilities
 
-The backend uses an asynchronous task queue system where:
-1. Tasks are submitted via `/api/tasks` endpoint
-2. Files are stored in `uploads/{task_id}/`
-3. Processing happens asynchronously with real-time progress via SSE
-4. Results are stored in `result/{task_id}/`
-
-Audio preprocessing flow:
-1. Upload audio via `/api/preprocess` with configuration
-2. Files stored in `preprocessed/{preprocess_id}/`
-3. Processing applies FFmpeg filters (denoise, normalize, EQ, etc.)
-4. Download processed audio or use for transcription
+The backend uses a **memory-based** architecture where:
+1. Email verification required before task submission (6-digit code, 5-minute expiry)
+2. Verified emails have 24-hour validity
+3. Tasks stored in memory (OrderedDict) for fast access
+4. Files temporarily stored during processing in `uploads/{task_id}/` and `result/{task_id}/`
+5. Processing happens asynchronously with real-time progress via SSE
+6. Results delivered via email upon completion
+7. **All temporary files auto-deleted** after email sent or on failure
+8. No persistent database - clean shutdown removes all task data
 
 ### Frontend Architecture (frontend/src/)
 
-- **src/ui/App.tsx**: Main application component with view mode switching (main/admin/preprocess)
+- **src/ui/App.tsx**: Main application component with view mode switching (main/admin)
 - **src/components/**: Reusable React components
+  - **EmailVerification.tsx**: Email verification UI with code input
   - **UploadSection.tsx**: File upload with drag-and-drop, model selection, advanced parameters
   - **TaskProgress.tsx**: Real-time progress display with SSE, partial result preview
-  - **TaskHistory.tsx**: Historical task management with batch operations
+  - **TaskHistory.tsx**: Historical task management with email-based query
   - **ServiceStats.tsx**: Service statistics display
   - **AudioPlayer.tsx**: Smart audio player selection based on file size
   - **SimpleAudioPlayer.tsx**: HTML5 audio player for regular files
   - **NativeAudioPlayer.tsx**: Native audio player for large files
-  - **AudioPreprocessor.tsx**: Audio preprocessing interface with parameter controls and A/B comparison
-  - **PreprocessHistory.tsx**: Preprocessing task history management
-- **src/pages/AdminPage.tsx**: Admin interface for viewing all tasks and system stats
-- **src/api.ts**: Axios-based API client (transcription + preprocessing methods)
+- **src/pages/AdminPage.tsx**: Admin interface for viewing all tasks (with masked emails)
+- **src/api.ts**: Axios-based API client for email verification and transcription tasks
 - **src/types.ts**: TypeScript type definitions
 - **src/utils/taskStorage.ts**: LocalStorage management for task IDs
+- **src/utils/emailStorage.ts**: LocalStorage management for verified email (24-hour persistence)
 - **src/styles/main.css**: Global styles
 
 ### Key Features
 
-1. **Real-time Progress**: Uses Server-Sent Events (SSE) for live progress updates with partial results
-2. **Speaker Diarization**: Optional multi-speaker recognition using Pyannote with configurable speaker count
-3. **Confidence Score Visualization**: Word-level confidence scores with interactive HTML visualization
-4. **Audio Preprocessing**: FFmpeg-based audio enhancement with 15+ processing options
-   - Noise reduction (FFT denoising)
-   - Volume normalization (peak/LUFS)
-   - Silence removal
-   - Vocal enhancement
-   - Echo removal
-   - EQ (3-band)
-   - Dynamic range compression
-   - Speed/pitch adjustment
-   - A/B audio comparison
-5. **Task Management**: Complete lifecycle management with SQLite persistence
-6. **File Handling**: Supports MP3, WAV, M4A, FLAC formats with smart audio player selection
-7. **Time Range Selection**: Can process specific segments of audio files
-8. **Multiple Models**: Support for different Whisper models, languages, and compute types (float32, int8, float16)
-9. **Advanced Parameters**: Configurable VAD sensitivity, beam size based on compute type
-10. **Admin Dashboard**: Token-based admin interface with batch operations and cleanup utilities
-11. **Proxy Configuration**: Vite proxy routes `/api` to backend at `localhost:8000`
+1. **Email Verification System**: 6-digit verification codes with 5-minute expiry, 24-hour validity after verification
+2. **Persistent Email State**: Frontend stores verified email in localStorage, auto-unlocks both upload and history on page refresh
+3. **Memory-Based Storage**: No database required - all task metadata stored in memory for faster access
+4. **Email Delivery**: Results sent directly to user's email with transcript attachment and confidence visualization HTML
+5. **Auto Cleanup**: All temporary files automatically deleted after email sent or on task failure
+6. **Real-time Progress**: Uses Server-Sent Events (SSE) for live progress updates with partial results
+7. **Speaker Diarization**: Optional multi-speaker recognition using Pyannote with configurable speaker count
+8. **Confidence Score Visualization**: Word-level confidence scores with interactive HTML visualization (emailed as attachment)
+9. **File Handling**: Supports MP3, WAV, M4A, FLAC formats with smart audio player selection
+10. **Time Range Selection**: Can process specific segments of audio files
+11. **Multiple Models**: Support for different Whisper models, languages, and compute types (float32, int8, float16)
+12. **Advanced Parameters**: Configurable VAD sensitivity, speaker count, confidence scores
+13. **Privacy Protection**: Admin view shows masked emails only (e.g., `ab***@domain.com`)
 
 ### Processing Pipeline
 
-1. **Model Loading** (0-5%): Load Whisper and optional Pyannote models
-2. **Audio Conversion** (20-25%): Convert to appropriate format using FFmpeg
-3. **Speech Recognition** (30-60%): Transcribe audio using Faster-Whisper
-4. **Speaker Diarization** (70-85%): Optional speaker separation
-5. **Integration** (85-95%): Combine transcription with speaker information
-6. **Completion** (100%): Save results and update database
+1. **Email Verification** (0%): User receives and verifies 6-digit code
+2. **Model Loading** (0-5%): Load Whisper and optional Pyannote models
+3. **Audio Conversion** (20-25%): Convert to appropriate format using FFmpeg
+4. **Speech Recognition** (30-60%): Transcribe audio using Faster-Whisper
+5. **Speaker Diarization** (70-85%): Optional speaker separation
+6. **Integration** (85-95%): Combine transcription with speaker information
+7. **Email Delivery** (95-100%): Send results to user's email with attachments
+8. **Cleanup** (100%): Delete all temporary files
 
-### Database Schema
+### Memory Storage Schema
 
-SQLite database (`tasks.db`) in [remote_server/database.py](remote_server/database.py) with two main tables:
+In-memory OrderedDict storage in [remote_server/memory_storage.py](remote_server/memory_storage.py):
 
-**tasks table** (transcription tasks):
-- Task metadata (task_id, filename, status, progress, current_stage)
-- Client IP for task history tracking
+**Task Data Structure**:
+- Task metadata (task_id, email, filename, status, progress, current_stage)
 - Processing configuration (enable_diarization, start_time, end_time, language, task, model)
 - Advanced parameters (vad_onset, vad_offset, min_speakers, max_speakers, enable_confidence_score, compute_type)
 - Processing timestamps (created_at, started_at, completed_at)
-- Error handling and partial results (stored as JSON)
-- Result file paths and queue position
+- Error handling and partial results (stored as lists/dicts)
+- Temporary file paths (upload_path, result_path) - cleaned after completion
 
-**preprocess_tasks table** (audio preprocessing tasks):
-- Preprocessing metadata (preprocess_id, filename, status, progress, current_stage)
-- Client IP for history tracking
-- Configuration JSON with all preprocessing parameters
-- File paths (original_path, processed_path)
-- Processing timestamps and results (original_info, processed_info, filters_applied as JSON)
+**Email Verification Storage** (in memory):
+- Verification codes with 5-minute expiry
+- Verified status with 24-hour expiry after successful verification
 
 ### API Integration Points
 
+#### Email Verification APIs
+- **POST /api/email/send-verification**: Send verification code to email (6-digit, 5-minute expiry)
+- **POST /api/email/verify-code**: Verify email with code (extends validity to 24 hours on success)
+
 #### Transcription APIs
-- **POST /api/tasks**: Submit new transcription tasks with optional parameters (enable_diarization, start_time, end_time, language, task, model)
+- **POST /api/tasks**: Submit new transcription tasks (requires verified email)
+  - Parameters: email, file, enable_diarization, start_time, end_time, language, task, model, etc.
+  - Returns: task_id, status, queue_position
 - **GET /api/tasks/{id}**: Query task status
 - **GET /api/tasks/{id}/stream**: SSE progress updates with partial results
-- **GET /api/tasks/{id}/download**: Download results (transcript or raw)
-- **DELETE /api/tasks/{id}**: Cancel tasks (or permanently delete with `?permanent=true`)
+- **DELETE /api/tasks/{id}**: Cancel tasks (with optional `?permanent=true` for deletion)
 - **POST /api/tasks/batch**: Batch query multiple tasks
-- **GET /api/my-tasks**: Client task history based on IP
+- **GET /api/my-tasks**: Get task history by email (requires `?email=xxx`)
 - **GET /api/stats**: Service statistics (queue size, processing count)
 
-#### Preprocessing APIs
-- **POST /api/preprocess**: Submit audio preprocessing task with configuration JSON
-- **GET /api/preprocess/{id}**: Query preprocessing task status
-- **GET /api/preprocess/{id}/stream**: SSE progress updates for preprocessing
-- **GET /api/preprocess/{id}/download**: Download preprocessed audio (original or processed)
-- **GET /api/preprocess/{id}/info**: Get preprocessing details and audio info
-- **GET /api/my-preprocess-tasks**: Client preprocessing task history
-- **DELETE /api/preprocess/{id}**: Cancel/delete preprocessing task (with optional permanent flag)
-
 #### Admin APIs
-- **GET /api/admin/tasks**: Admin endpoint to view all tasks with pagination (requires ADMIN_TOKEN)
+- **GET /api/admin/tasks**: Admin endpoint to view all tasks with masked emails (requires ADMIN_TOKEN)
 - **GET /api/admin/stats**: Admin system statistics and status counts
-- **POST /api/admin/tasks/batch-delete**: Batch delete tasks and their files
-- **POST /api/admin/cleanup**: Cleanup old completed tasks by age (in days)
 
 See full API documentation at `http://localhost:8000/docs` when server is running.
-See preprocessing usage guide at [PREPROCESS_USAGE.md](PREPROCESS_USAGE.md) for detailed examples.
 
 ### Development Notes
 
+- **No Database**: All task data stored in memory (OrderedDict) - server restart clears all tasks
+- **Auto Cleanup**: Temporary files in `uploads/` and `result/` auto-deleted on startup and after tasks complete
 - Backend uses CUDA if available, falls back to CPU
 - First run downloads models automatically (requires time and storage)
 - FFmpeg path is auto-detected from `ffmpeg-7.1.1-full_build-shared/bin` if present in project root
@@ -203,33 +192,51 @@ The `TaskProcessor` class handles:
 - **Model Management**: Singleton pattern for Whisper and Pyannote models to prevent multiple instances
 - **Dynamic Model Loading**: Supports switching between different Whisper models with configurable compute types
 - **Compute Type Optimization**: Automatically adjusts beam size based on compute type (float32=1, int8=10, float16=5)
-- **Cancellation Checks**: Regularly checks database for task cancellation during processing
-- **Progress Updates**: Updates database with progress percentage and current stage
+- **Cancellation Checks**: Regularly checks memory storage for task cancellation during processing
+- **Progress Updates**: Updates memory storage with progress percentage and current stage
 - **Audio Conversion**: Uses FFmpeg for format conversion and time-based trimming
 - **Memory Management**: Explicitly clears CUDA cache when switching models or unloading diarization
 - **Confidence Score Generation**: Creates word-level confidence visualization HTML with color-coded confidence levels
+- **Email Delivery**: Sends results via email with transcript.txt and optional confidence_report.html attachments
+- **Auto Cleanup**: Deletes all temporary files after successful email delivery
 
 ### API Server ([remote_server/api.py](remote_server/api.py))
 
 The FastAPI application uses:
-- **Dual Async Queue System**: Separate `asyncio.Queue` instances for transcription and preprocessing tasks
-- **SSE Streaming**: Server-Sent Events for real-time progress updates on both task types
-- **Client IP Tracking**: Uses `X-Forwarded-For` header for task history
-- **Lifespan Management**: Starts both queue processors on application startup
+- **Async Queue System**: `asyncio.Queue` for transcription task processing
+- **SSE Streaming**: Server-Sent Events for real-time progress updates
+- **Email Verification**: Required before task submission, validates 24-hour validity
+- **Lifespan Management**: Cleans up temporary files on startup, starts queue processor
 - **CORS Middleware**: Configured for cross-origin requests
+- **Memory Storage**: Uses `memory_manager` singleton for all task data
 
-### Preprocessing Processor ([remote_server/preprocess_processor.py](remote_server/preprocess_processor.py))
+### Email Service ([remote_server/email_service.py](remote_server/email_service.py))
 
-Handles audio preprocessing tasks:
-- **Async Processing**: Runs FFmpeg filters asynchronously without blocking API
-- **Progress Callbacks**: Updates database with progress percentage and current stage
-- **Audio Info Extraction**: Gets audio metadata before and after processing
-- **Filter Chain Application**: Applies configured FFmpeg filters in sequence
-- **Error Handling**: Captures and reports FFmpeg errors to database
+Handles all email operations:
+- **Verification Codes**: Generates 6-digit codes with 5-minute expiry
+- **Extended Validity**: Successful verification extends to 24-hour validity
+- **SMTP Integration**: Uses environment variables for SMTP configuration
+- **Result Delivery**: Sends email with:
+  - Task completion notification
+  - Transcript.txt attachment
+  - Optional confidence_report.html attachment (if enabled)
+  - Preview of first 500 characters in email body
+
+### Memory Storage ([remote_server/memory_storage.py](remote_server/memory_storage.py))
+
+In-memory task management:
+- **OrderedDict**: Maintains task insertion order for queue management
+- **Thread-Safe**: Uses RLock for concurrent access
+- **Email-Based Queries**: Can retrieve tasks by email address
+- **Auto Cleanup**: Provides methods to cleanup temporary files
+- **Privacy Protection**: Admin views return masked emails
+- **No Persistence**: All data lost on server restart (by design)
 
 ### Frontend State Management
 
-- **Task IDs**: Stored in localStorage via `taskStorage.ts` for persistence across sessions
+- **Verified Email**: Stored in localStorage via `emailStorage.ts` for 24-hour persistence across page refreshes
+- **Task IDs**: Stored in localStorage via `taskStorage.ts` for tracking user's own tasks
 - **SSE Connections**: EventSource API for real-time updates, auto-reconnect on failure
 - **Batch Operations**: Supports batch querying multiple task statuses for history view
-- **Admin Mode**: Separate view mode with token-based authentication
+- **Shared Verification State**: Both UploadSection and TaskHistory share same verified email from localStorage
+- **Admin Mode**: Separate view mode with token-based authentication, shows masked emails only

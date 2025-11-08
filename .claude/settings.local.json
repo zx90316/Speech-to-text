@@ -7,7 +7,12 @@
       "Bash(.venv/Scripts/python.exe remote_server/api_preprocess_only.py:*)",
       "Bash(curl:*)",
       "Bash(.venv/Scripts/python.exe test_api_preprocess.py:*)",
-      "Bash(.venv/Scripts/python.exe test_echo_removal.py:*)"
+      "Bash(.venv/Scripts/python.exe test_echo_removal.py:*)",
+      "Bash(echo:*)",
+      "Bash(\"c:\\Users\\CWT\\Speech-to-text\\frontend\\src\\styles\\main.css\")",
+      "Bash(dir /s /b *.py *.ts *.tsx 2)",
+      "Bash(nul)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []

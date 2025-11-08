@@ -8,9 +8,34 @@ const API_BASE_URL = '/api';
 
 export const api = {
   /**
+   * 發送郵件驗證碼
+   */
+  async sendVerificationEmail(email: string): Promise<{ success: boolean; message: string }> {
+    const response = await axios.post<{ success: boolean; message: string }>(
+      `${API_BASE_URL}/email/send-verification`,
+      null,
+      { params: { email } }
+    );
+    return response.data;
+  },
+
+  /**
+   * 驗證郵件驗證碼
+   */
+  async verifyEmailCode(email: string, code: string): Promise<{ success: boolean; message: string; email: string }> {
+    const response = await axios.post<{ success: boolean; message: string; email: string }>(
+      `${API_BASE_URL}/email/verify-code`,
+      null,
+      { params: { email, code } }
+    );
+    return response.data;
+  },
+
+  /**
    * 提交轉錄任務
    */
   async createTask(
+    email: string,
     file: File,
     enableDiarization: boolean = true,
     startTime?: number,
@@ -28,7 +53,10 @@ export const api = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const params: any = { enable_diarization: enableDiarization };
+    const params: any = {
+      email,
+      enable_diarization: enableDiarization
+    };
     if (startTime !== undefined) params.start_time = startTime;
     if (endTime !== undefined) params.end_time = endTime;
     if (language) params.language = language;
@@ -78,18 +106,11 @@ export const api = {
   },
 
   /**
-   * 下載結果
+   * 查詢我的任務歷史（基於郵箱）
    */
-  downloadResult(taskId: string, fileType: 'transcript' | 'raw' | 'confidence_html' = 'transcript'): string {
-    return `${API_BASE_URL}/tasks/${taskId}/download?file_type=${fileType}`;
-  },
-
-  /**
-   * 查詢我的任務歷史（基於 IP）
-   */
-  async getMyTasks(limit: number = 50): Promise<TaskHistory> {
+  async getMyTasks(email: string, limit: number = 50): Promise<TaskHistory> {
     const response = await axios.get<TaskHistory>(`${API_BASE_URL}/my-tasks`, {
-      params: { limit }
+      params: { email, limit }
     });
     return response.data;
   },
@@ -118,95 +139,6 @@ export const api = {
    */
   createProgressStream(taskId: string): EventSource {
     return new EventSource(`${API_BASE_URL}/tasks/${taskId}/stream`);
-  },
-
-  /**
-   * 音訊預處理
-   */
-  /**
-   * 提交音訊預處理任務（異步）
-   */
-  async preprocessAudio(
-    file: File,
-    config: any
-  ): Promise<{
-    preprocess_id: string;
-    status: string;
-    message: string;
-  }> {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const response = await axios.post(
-      `${API_BASE_URL}/preprocess`,
-      formData,
-      {
-        params: {
-          config: JSON.stringify(config)
-        },
-        headers: { 'Content-Type': 'multipart/form-data' }
-      }
-    );
-
-    return response.data;
-  },
-
-  /**
-   * 查詢預處理任務狀態
-   */
-  async getPreprocessTask(preprocessId: string): Promise<any> {
-    const response = await axios.get(`${API_BASE_URL}/preprocess/${preprocessId}`);
-    return response.data;
-  },
-
-  /**
-   * 連接預處理任務進度 SSE 串流
-   */
-  connectPreprocessStream(preprocessId: string): EventSource {
-    return new EventSource(`${API_BASE_URL}/preprocess/${preprocessId}/stream`);
-  },
-
-  /**
-   * 下載預處理音訊
-   */
-  downloadPreprocessedAudio(preprocessId: string, fileType: 'original' | 'processed' = 'processed'): string {
-    return `${API_BASE_URL}/preprocess/${preprocessId}/download?file_type=${fileType}`;
-  },
-
-  /**
-   * 獲取預處理資訊（已棄用，使用 getPreprocessTask）
-   */
-  async getPreprocessInfo(preprocessId: string): Promise<{
-    preprocess_id: string;
-    original_info: any;
-    processed_info: any;
-    original_file: string;
-    processed_file: string;
-  }> {
-    const response = await axios.get(`${API_BASE_URL}/preprocess/${preprocessId}/info`);
-    return response.data;
-  },
-
-  /**
-   * 取消/刪除預處理任務
-   */
-  async deletePreprocess(preprocessId: string, permanent: boolean = false): Promise<void> {
-    await axios.delete(`${API_BASE_URL}/preprocess/${preprocessId}`, {
-      params: { permanent }
-    });
-  },
-
-  /**
-   * 獲取我的預處理任務歷史
-   */
-  async getMyPreprocessTasks(limit: number = 50): Promise<{
-    tasks: any[];
-    total: number;
-  }> {
-    const response = await axios.get(`${API_BASE_URL}/my-preprocess-tasks`, {
-      params: { limit }
-    });
-    return response.data;
   }
 };
 
