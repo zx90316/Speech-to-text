@@ -3,8 +3,7 @@ Ollama LLM 校對服務模組
 使用 Ollama API 對轉錄文本進行校對和改正
 """
 import requests
-import json
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 import threading
 
 
@@ -77,7 +76,8 @@ class OllamaService:
         text: str,
         model: str = "gemma3:4b",
         has_diarization: bool = False,
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[callable] = None,
+        _force_direct: bool = False
     ) -> Dict[str, str]:
         """
         使用 Ollama LLM 校對文本
@@ -87,6 +87,7 @@ class OllamaService:
             model: 使用的 LLM 模型
             has_diarization: 是否包含語者分離信息
             progress_callback: 進度回調函數
+            _force_direct: 強制直接處理，不進行分段（內部使用）
 
         Returns:
             Dict 包含 original（原文）和 corrected（校正後）
@@ -97,7 +98,7 @@ class OllamaService:
             model = "gemma3:4b"
 
         # 分段處理長文本（每段最多 2000 字）
-        if len(text) > 2000:
+        if len(text) > 2000 and not _force_direct:
             return self._correct_long_text(text, model, has_diarization, progress_callback)
 
         try:
@@ -216,7 +217,8 @@ class OllamaService:
             if progress_callback:
                 progress_callback(f"LLM 校對進度: {i + 1}/{total_segments}")
 
-            result = self.correct_text(segment, model, has_diarization, None)
+            # 使用 _force_direct=True 避免遞歸
+            result = self.correct_text(segment, model, has_diarization, None, _force_direct=True)
             corrected_segments.append(result['corrected'])
 
         # 合併結果

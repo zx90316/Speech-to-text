@@ -953,15 +953,6 @@ class TaskProcessor:
                     print(f"⚠️ 警告：生成信心度 HTML 失敗: {str(e)}")
                     # 不影響主任務，繼續執行
             
-            # 任務完成 - 準備發送郵件
-            memory_manager.update_task_status(
-                task_id,
-                'completed',
-                progress=100.0,
-                current_stage='發送結果郵件'
-            )
-            memory_manager.update_task_result(task_id, partial_result)
-
             # 獲取任務資訊以取得郵箱和檔名
             task = memory_manager.get_task_full(task_id)
             if task:
@@ -990,6 +981,13 @@ class TaskProcessor:
 
                         # 執行校對
                         def llm_progress(msg):
+                            # 任務完成 - 準備發送郵件
+                            memory_manager.update_task_status(
+                                task_id,
+                                'processing',
+                                progress=96.0,
+                                current_stage=msg
+                            )
                             print(f"  LLM: {msg}")
 
                         correction_result = ollama_service.correct_text(
@@ -1018,11 +1016,26 @@ class TaskProcessor:
                             f.write(corrected_text)
 
                         print(f"✅ LLM 校對完成")
+                        # 任務完成 - 準備發送郵件
+                        memory_manager.update_task_status(
+                            task_id,
+                            'processing',
+                            progress=97.0,
+                            current_stage='✅ LLM 校對完成'
+                        )
 
                     except Exception as llm_error:
                         print(f"⚠️ LLM 校對失敗: {llm_error}")
                         corrected_text = None  # 失敗時不使用校正版本
 
+                # 任務完成 - 準備發送郵件
+                memory_manager.update_task_status(
+                    task_id,
+                    'completed',
+                    progress=100.0,
+                    current_stage='發送結果郵件'
+                )
+                memory_manager.update_task_result(task_id, partial_result)
                 # 發送完成通知郵件
                 try:
                     email_success = email_service.send_completion_email(
