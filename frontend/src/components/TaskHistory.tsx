@@ -172,10 +172,6 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
         </div>
       ) : (
         <>
-          <div className="verified-email-badge">
-            ✓ 查詢郵箱: {verifiedEmail}
-          </div>
-
       {tasks.length === 0 ? (
         <div className="empty-state">
           <History size={48} />

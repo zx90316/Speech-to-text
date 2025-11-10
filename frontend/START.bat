@@ -18,7 +18,7 @@ if not exist "node_modules\" (
 echo 正在啟動開發服務器...
 echo 前端地址: http://localhost:5173
 echo.
-echo 請確保後端 API 已在 http://localhost:8000 運行
+echo 請確保後端 API 已在 http://localhost:8100 運行
 echo.
 
 npm run dev

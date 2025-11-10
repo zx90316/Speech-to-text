@@ -250,15 +250,13 @@ class EmailService:
     def _send_email(self, msg: MIMEMultipart) -> bool:
         """發送郵件的內部方法"""
         try:
-            if not self.smtp_username or not self.smtp_password:
-                print("警告：SMTP 憑證未設定，無法發送郵件")
-                return False
-
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_username, self.smtp_password)
-                server.send_message(msg)
+                if self.smtp_username and self.smtp_password:
+                    server.starttls()
+                    server.login(self.smtp_username, self.smtp_password)
 
+                server.send_message(msg)
+                print(f"郵件已成功發送至 {msg['To']}")
             return True
 
         except Exception as e:
