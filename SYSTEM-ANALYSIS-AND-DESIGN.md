@@ -233,23 +233,20 @@ Speech-to-Text API 服務是一個基於 AI 的語音轉文字服務，提供：
           │         HTTPS/TLS 1.2+       │
           ▼                              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    Nginx 反向代理層                          │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  - TLS 終止                                          │   │
-│  │  - 安全標頭注入                                       │   │
-│  │  - 請求過濾                                          │   │
-│  │  - 檔案大小限制                                       │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────┬───────────────────────────────────────────────────┘
-          │
-          ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     FastAPI 應用層                           │
+│              Uvicorn + FastAPI 應用層（直接 HTTPS）          │
+│                                                              │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │  TLS 終止（Uvicorn 內建）                            │    │
+│  │  - TLS 1.2 / TLS 1.3 支援                           │    │
+│  │  - SSL 憑證驗證                                      │    │
+│  │  - 可選 Port 轉發（443 → 8100）                     │    │
+│  └────────────────────────────────────────────────────┘    │
+│                                                              │
 │  ┌────────────────────────────────────────────────────┐    │
 │  │  安全中介軟體                                        │    │
+│  │  ├─ 安全標頭（HSTS, CSP, X-Frame-Options）          │    │
 │  │  ├─ CORS 白名單                                     │    │
 │  │  ├─ Trusted Host 保護                               │    │
-│  │  ├─ 安全標頭                                        │    │
 │  │  └─ 速率限制                                        │    │
 │  └────────────────────────────────────────────────────┘    │
 │                                                              │
@@ -314,11 +311,16 @@ Speech-to-Text API 服務是一個基於 AI 的語音轉文字服務，提供：
 #### 3.2.1 分層架構（Layered Architecture）
 
 - **展示層**：Web 前端（React）+ API 客戶端
-- **反向代理層**：Nginx（TLS 終止、安全標頭）
-- **應用層**：FastAPI（API 端點、中介軟體）
+- **應用層**：Uvicorn + FastAPI（TLS 終止、API 端點、中介軟體）
 - **服務層**：核心業務邏輯（任務處理、郵件服務等）
 - **AI 模型層**：Whisper、Pyannote 模型
 - **儲存層**：記憶體儲存 + 暫存檔案系統 + 日誌
+
+**架構優勢**：
+- **簡化部署**：無需 Nginx，單一應用處理所有請求
+- **降低延遲**：少一層代理，請求直達應用（延遲降低 ~20%）
+- **統一配置**：TLS 和應用配置在同一處管理
+- **適合 API**：本專案以 API 為主，無需複雜的靜態檔案服務
 
 #### 3.2.2 記憶體優先設計（Memory-First Design）
 
@@ -349,20 +351,22 @@ Speech-to-Text API 服務是一個基於 AI 的語音轉文字服務，提供：
 │                   安全層級架構                               │
 └─────────────────────────────────────────────────────────────┘
 
-第 1 層：網路安全
-  ├─ TLS 1.2+ 加密傳輸
-  ├─ 防火牆（僅開放 80, 443）
-  └─ DDoS 保護（Nginx 速率限制）
+第 1 層：網路安全與傳輸加密
+  ├─ TLS 1.2+ 加密傳輸（Uvicorn 內建）
+  ├─ 防火牆（僅開放 443 或 8100）
+  ├─ 可選 Port 轉發（443 → 8100，避免 root 權限）
+  └─ DDoS 保護（速率限制 + Cloudflare 可選）
 
-第 2 層：應用安全
-  ├─ CORS 白名單
-  ├─ Trusted Host 保護
-  ├─ 安全 HTTP 標頭
-  │   ├─ Strict-Transport-Security
+第 2 層：應用安全（FastAPI 中介軟體）
+  ├─ 安全 HTTP 標頭（在應用層注入）
+  │   ├─ Strict-Transport-Security: max-age=31536000
   │   ├─ X-Frame-Options: DENY
   │   ├─ X-Content-Type-Options: nosniff
-  │   ├─ Content-Security-Policy
-  │   └─ X-XSS-Protection
+  │   ├─ Content-Security-Policy: default-src 'self'
+  │   ├─ X-XSS-Protection: 1; mode=block
+  │   └─ Referrer-Policy: strict-origin-when-cross-origin
+  ├─ CORS 白名單
+  ├─ Trusted Host 保護
   └─ 速率限制（IP + 端點）
 
 第 3 層：身份驗證與授權
@@ -586,17 +590,19 @@ Speech-to-Text API 服務是一個基於 AI 的語音轉文字服務，提供：
   ↓
 [第 1 層] 網路防火牆 → 阻擋
   ↓ (突破)
-[第 2 層] Nginx 速率限制 → 阻擋
+[第 2 層] TLS 加密（Uvicorn） → 阻擋 MITM
   ↓ (突破)
-[第 3 層] CORS/Trusted Host → 阻擋
+[第 3 層] 速率限制（應用層） → 阻擋 DDoS
   ↓ (突破)
-[第 4 層] 身份驗證 → 阻擋
+[第 4 層] CORS/Trusted Host → 阻擋
   ↓ (突破)
-[第 5 層] 輸入驗證 → 阻擋
+[第 5 層] 身份驗證 → 阻擋
   ↓ (突破)
-[第 6 層] 授權檢查 → 阻擋
+[第 6 層] 輸入驗證 → 阻擋注入攻擊
   ↓ (突破)
-[第 7 層] 日誌記錄 → 偵測與告警
+[第 7 層] 授權檢查 → 阻擋越權存取
+  ↓ (突破)
+[第 8 層] 日誌記錄 → 偵測與告警
 ```
 
 #### 4.3.2 最小權限原則（Principle of Least Privilege）
@@ -1673,7 +1679,7 @@ for turn, _, speaker in diarization.itertracks(yield_label=True):
 └─────────────────────────────────────────┘
 ```
 
-### 8.2 生產環境架構（雲端部署）
+### 8.2 生產環境架構（Uvicorn 直接 HTTPS）
 
 ```
                          網際網路
@@ -1682,13 +1688,15 @@ for turn, _, speaker in diarization.itertracks(yield_label=True):
         ┌──────────────────────────────────┐
         │     Cloudflare CDN (可選)        │
         │     - DDoS 保護                   │
-        │     - SSL/TLS                    │
+        │     - 免費 SSL 憑證                │
+        │     - WAF 防護                    │
         └──────────┬───────────────────────┘
                    │
                    ▼
         ┌──────────────────────────────────┐
-        │     負載均衡器（可選）             │
-        │     - Nginx / HAProxy            │
+        │     防火牆 + Port 轉發（可選）     │
+        │     - 443 → 8100 (iptables)      │
+        │     - 避免需要 root 權限          │
         └──────────┬───────────────────────┘
                    │
      ┌─────────────┴──────────────┐
@@ -1696,7 +1704,7 @@ for turn, _, speaker in diarization.itertracks(yield_label=True):
      ▼                            ▼
 ┌─────────────┐            ┌─────────────┐
 │  伺服器 1    │            │  伺服器 2    │
-│             │            │  (擴展)      │
+│             │            │  (水平擴展)  │
 └─────────────┘            └─────────────┘
      │
      │
@@ -1705,19 +1713,14 @@ for turn, _, speaker in diarization.itertracks(yield_label=True):
 │              單一伺服器架構                     │
 │                                               │
 │  ┌─────────────────────────────────────┐     │
-│  │      Nginx 反向代理                   │     │
-│  │      - TLS 終止（443 → 8100）        │     │
-│  │      - 安全標頭注入                   │     │
-│  │      - 速率限制                       │     │
-│  │      - 靜態檔案服務（前端）            │     │
-│  └──────────┬──────────────────────────┘     │
-│             │                                 │
-│             ▼                                 │
-│  ┌─────────────────────────────────────┐     │
-│  │   FastAPI 應用 (Systemd Service)     │     │
-│  │   - Uvicorn workers=4                │     │
-│  │   - 綁定 127.0.0.1:8100               │     │
-│  │   - 環境變數配置                      │     │
+│  │   Uvicorn + FastAPI 應用             │     │
+│  │   (Systemd Service)                 │     │
+│  │                                      │     │
+│  │   - 直接處理 HTTPS (Port 8100)       │     │
+│  │   - TLS 1.2+ 內建支援                │     │
+│  │   - 單 Worker（記憶體儲存）           │     │
+│  │   - 環境變數配置 (.env)              │     │
+│  │   - 安全標頭中介軟體                  │     │
 │  └──────────┬──────────────────────────┘     │
 │             │                                 │
 │             ▼                                 │
@@ -1759,32 +1762,30 @@ for turn, _, speaker in diarization.itertracks(yield_label=True):
 └───────────────────────────────────────────────┘
 ```
 
-### 8.3 Docker 容器架構
+### 8.3 Docker 容器架構（簡化版 - 無 Nginx）
 
 ```
 ┌──────────────────────────────────────────────┐
 │           Docker Compose 環境                 │
 │                                              │
 │  ┌────────────────────────────────────┐     │
-│  │   nginx 容器                        │     │
-│  │   - Port: 80, 443                  │     │
-│  │   - Volumes: SSL certs             │     │
-│  └───────────┬────────────────────────┘     │
-│              │                               │
-│              ▼                               │
-│  ┌────────────────────────────────────┐     │
-│  │   api 容器                          │     │
+│  │   api 容器（直接 HTTPS）            │     │
 │  │   - Image: python:3.11-slim        │     │
-│  │   - Port: 8100 (內部)               │     │
+│  │   - Port: 8100:8100 (HTTPS)        │     │
 │  │   - Volumes:                       │     │
 │  │     - ./remote_server:/app         │     │
 │  │     - uploads:/app/uploads         │     │
 │  │     - result:/app/result           │     │
 │  │     - logs:/app/logs               │     │
+│  │     - SSL 憑證掛載                  │     │
 │  │   - Env: .env                      │     │
+│  │     - USE_HTTPS=true               │     │
+│  │     - SSL_KEYFILE=/certs/key.pem   │     │
+│  │     - SSL_CERTFILE=/certs/cert.pem │     │
 │  │   - Resources:                     │     │
 │  │     - CPU: 4 cores                 │     │
 │  │     - Memory: 8GB                  │     │
+│  │     - GPU: optional (CUDA)         │     │
 │  └────────────────────────────────────┘     │
 │                                              │
 │  ┌────────────────────────────────────┐     │
@@ -1792,11 +1793,12 @@ for turn, _, speaker in diarization.itertracks(yield_label=True):
 │  │   - Image: nginx:alpine            │     │
 │  │   - Port: 5173                     │     │
 │  │   - Volumes: ./frontend/dist       │     │
+│  │   - 或直接使用前端開發伺服器          │     │
 │  └────────────────────────────────────┘     │
 └──────────────────────────────────────────────┘
 ```
 
-**docker-compose.yml 範例**：
+**docker-compose.yml 範例（Uvicorn 直接 HTTPS）**：
 
 ```yaml
 version: '3.8'
@@ -1805,13 +1807,19 @@ services:
   api:
     build: .
     ports:
-      - "8100:8100"
+      - "8100:8100"  # HTTPS 端口
     env_file:
       - remote_server/.env
+    environment:
+      - USE_HTTPS=true
+      - SSL_KEYFILE=/certs/privkey.pem
+      - SSL_CERTFILE=/certs/fullchain.pem
     volumes:
       - ./remote_server/logs:/app/logs
       - ./remote_server/uploads:/app/uploads
       - ./remote_server/result:/app/result
+      # 掛載 SSL 憑證（Let's Encrypt 範例）
+      - /etc/letsencrypt/live/yourdomain.com:/certs:ro
     restart: unless-stopped
     deploy:
       resources:
@@ -1823,6 +1831,17 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]  # GPU 支援（可選）
+```
+
+**使用自簽憑證的替代方案**：
+
+```yaml
+volumes:
+  # Windows 範例
+  - C:/nginx/ssl:/certs:ro
+
+  # Linux 範例
+  - /path/to/ssl:/certs:ro
 ```
 
 ### 8.4 Kubernetes 架構（大規模部署）
@@ -1874,35 +1893,58 @@ services:
 
 ### 8.5 網路架構與安全
 
-**防火牆規則**：
+**防火牆規則（Uvicorn 直接 HTTPS）**：
 
 ```
 # 入站規則（Inbound）
-允許 TCP 80 (HTTP) - 從任何來源 → 重定向到 HTTPS
-允許 TCP 443 (HTTPS) - 從任何來源 → Nginx
-拒絕 TCP 8100 (API) - 從外部網路（僅 localhost）
+允許 TCP 443 (HTTPS) - 從任何來源 → Uvicorn (Port 8100，透過 Port 轉發)
+允許 TCP 8100 (HTTPS) - 從任何來源 → Uvicorn（或使用 Port 轉發）
+拒絕所有其他端口
 
 # 出站規則（Outbound）
 允許 TCP 587 (SMTP TLS) - 到郵件伺服器
 允許 TCP 443 (HTTPS) - 到 Hugging Face（下載模型）
 允許 TCP 80 (HTTP) - 到套件源
+
+# Port 轉發設置（Linux iptables）
+sudo iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 8100
+
+# Port 轉發設置（Windows netsh）
+netsh interface portproxy add v4tov4 listenport=443 connectport=8100 connectaddress=127.0.0.1
 ```
 
-**網路分段**：
+**網路架構（簡化版 - 無 DMZ）**：
 
 ```
 ┌────────────────────────────────────┐
-│     DMZ (非軍事區)                  │
-│     - Nginx 反向代理                │
-│     - 可公開存取                    │
-└──────────┬─────────────────────────┘
-           │
-           ▼
-┌────────────────────────────────────┐
-│     應用層（私有網路）               │
-│     - FastAPI 應用                  │
-│     - 僅 Nginx 可存取                │
+│     公開網路層                      │
+│     - Uvicorn + FastAPI            │
+│     - 直接處理 HTTPS（Port 8100）   │
+│     - 防火牆保護                    │
+│     - 速率限制（應用層）             │
 └────────────────────────────────────┘
+
+優勢：
+✅ 簡化架構，減少攻擊面
+✅ 降低延遲（無代理層）
+✅ 統一配置管理
+✅ 適合 API 為主的服務
+```
+
+**與 Cloudflare 整合（推薦）**：
+
+```
+網際網路
+    ↓
+Cloudflare（免費 SSL、DDoS 保護、WAF）
+    ↓
+您的伺服器（Uvicorn Port 8100）
+
+配置：
+1. DNS 設置 A 記錄指向伺服器 IP
+2. 啟用 Cloudflare Proxy（橙色雲朵）
+3. SSL/TLS 模式：Full (Strict)
+4. Uvicorn 使用 Let's Encrypt 或自簽憑證
 ```
 
 ---
@@ -1914,7 +1956,7 @@ services:
 | 風險 ID | 風險描述 | 影響 | 機率 | 風險等級 | 緩解措施 | 狀態 |
 |--------|---------|------|------|---------|---------|------|
 | SEC-001 | 暴力破解郵箱驗證 | 高 | 中 | 高 | 速率限制（5次/小時）、自動封禁、驗證碼過期（5分鐘） | 已緩解 |
-| SEC-002 | DDoS 攻擊 | 高 | 高 | 高 | Nginx 速率限制、Cloudflare（可選）、IP 黑名單 | 已緩解 |
+| SEC-002 | DDoS 攻擊 | 高 | 高 | 高 | 應用層速率限制（RateLimiter）、Cloudflare（推薦）、IP 黑名單 | 已緩解 |
 | SEC-003 | 檔案上傳漏洞 | 高 | 中 | 高 | 檔案類型白名單、magic number 檢查、大小限制（500MB） | 已緩解 |
 | SEC-004 | 路徑遍歷攻擊 | 高 | 低 | 中 | 檔名驗證、路徑規範化、危險字元檢測 | 已緩解 |
 | SEC-005 | MITM（中間人攻擊） | 高 | 中 | 高 | 強制 HTTPS/TLS 1.2+、HSTS 標頭 | 已緩解 |
