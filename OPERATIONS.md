@@ -1,0 +1,713 @@
+# 維運手冊
+
+系統維運、監控和故障排除指南（符合 SSDLC 要求）
+
+---
+
+## 📋 目錄
+
+1. [日常維運](#日常維運)
+2. [監控和告警](#監控和告警)
+3. [日誌管理](#日誌管理)
+4. [備份和恢復](#備份和恢復)
+5. [故障排除](#故障排除)
+6. [性能調優](#性能調優)
+7. [安全維護](#安全維護)
+8. [升級流程](#升級流程)
+
+---
+
+## 🔄 日常維運
+
+### 每日檢查
+
+#### 1. 系統健康檢查
+
+```bash
+# 檢查 API 健康狀態
+curl http://localhost:8100/health
+
+# 預期輸出
+{
+  "status": "healthy",
+  "queue_size": 0,
+  "processing": false
+}
+```
+
+#### 2. 服務狀態檢查
+
+```bash
+# 檢查服務運行狀態
+sudo systemctl status speech-to-text
+
+# 查看服務日誌
+sudo journalctl -u speech-to-text -n 50 --no-pager
+```
+
+#### 3. 資源使用檢查
+
+```bash
+# 檢查磁碟空間
+df -h
+
+# 檢查記憶體使用
+free -h
+
+# 檢查 CPU 使用
+top -bn1 | head -20
+
+# 檢查日誌目錄大小
+du -sh remote_server/logs/
+```
+
+#### 4. 快速日誌檢查
+
+```bash
+# 查看最近的錯誤
+tail -n 50 remote_server/logs/error.log
+
+# 查看最近的安全事件
+tail -n 50 remote_server/logs/security.log
+
+# 統計今日任務數
+grep $(date +%Y-%m-%d) remote_server/logs/operation.log | grep TASK_CREATED | wc -l
+```
+
+### 每週維護
+
+#### 1. 日誌分析
+
+```bash
+# 統計本週驗證嘗試
+grep "AUTH_ATTEMPT" remote_server/logs/auth.log | grep $(date -d "7 days ago" +%Y-%m-%d) | wc -l
+
+# 統計失敗的驗證
+grep "AUTH_ATTEMPT" remote_server/logs/auth.log | grep "failed" | tail -20
+
+# 統計速率限制事件
+grep "RATE_LIMIT_EXCEEDED" remote_server/logs/security.log | wc -l
+
+# 統計任務完成情況
+grep "TASK_COMPLETED" remote_server/logs/operation.log | grep "success" | wc -l
+```
+
+#### 2. 系統清理
+
+```bash
+# 清理臨時文件（如果有殘留）
+cd remote_server
+python -c "from memory_storage import memory_manager; memory_manager.cleanup_all_temporary_files()"
+
+# 清理過期的日誌備份（保留 30 天）
+find /backup/logs/ -name "*.tar.gz" -mtime +30 -delete
+```
+
+#### 3. 備份驗證
+
+```bash
+# 檢查最近的備份
+ls -lh /backup/logs/ | tail -10
+
+# 測試備份完整性
+tar -tzf /backup/logs/logs-$(date +%Y%m%d).tar.gz > /dev/null && echo "備份完整" || echo "備份損壞"
+```
+
+### 每月維護
+
+#### 1. 安全更新
+
+```bash
+# 更新系統套件
+sudo apt update && sudo apt upgrade -y  # Ubuntu/Debian
+
+# 更新 Python 依賴
+cd remote_server
+pip install --upgrade -r requirements.txt
+
+# 檢查安全漏洞
+pip-audit
+
+# 執行代碼安全掃描
+bandit -r . -ll
+```
+
+#### 2. 憑證檢查
+
+```bash
+# 檢查 SSL 憑證有效期
+sudo certbot certificates
+
+# 自動更新憑證（測試）
+sudo certbot renew --dry-run
+```
+
+#### 3. 性能分析
+
+```bash
+# 分析 API 響應時間（需要配置監控工具）
+# 檢查任務處理時間統計
+# 檢查資源使用趨勢
+```
+
+---
+
+## 📊 監控和告警
+
+### 系統監控指標
+
+#### 關鍵指標
+
+| 指標 | 正常值 | 警告閾值 | 緊急閾值 |
+|------|-------|---------|---------|
+| CPU 使用率 | < 60% | > 80% | > 95% |
+| 記憶體使用率 | < 70% | > 85% | > 95% |
+| 磁碟使用率 | < 70% | > 85% | > 95% |
+| API 響應時間 | < 500ms | > 2s | > 5s |
+| 錯誤率 | < 1% | > 5% | > 10% |
+| 隊列長度 | < 10 | > 50 | > 100 |
+
+### 日誌監控
+
+#### 需要監控的日誌模式
+
+```bash
+# 監控失敗的驗證嘗試（可能的暴力破解）
+tail -f remote_server/logs/auth.log | grep "failed"
+
+# 監控安全事件
+tail -f remote_server/logs/security.log | grep -E "RATE_LIMIT|UNAUTHORIZED|BLACKLIST"
+
+# 監控錯誤
+tail -f remote_server/logs/error.log
+
+# 監控個資訪問（合規）
+tail -f remote_server/logs/audit.log | grep "PERSONAL_DATA_ACCESS"
+```
+
+### 設置監控告警（使用 Prometheus + Grafana）
+
+#### 1. 安裝 Prometheus
+
+```bash
+# 下載並安裝 Prometheus
+wget https://github.com/prometheus/prometheus/releases/download/v2.45.0/prometheus-2.45.0.linux-amd64.tar.gz
+tar xvfz prometheus-*.tar.gz
+cd prometheus-*
+```
+
+#### 2. 配置 Prometheus
+
+創建 `prometheus.yml`：
+
+```yaml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'speech-to-text'
+    static_configs:
+      - targets: ['localhost:8100']
+```
+
+#### 3. 告警規則範例
+
+創建 `alerts.yml`：
+
+```yaml
+groups:
+  - name: speech_to_text_alerts
+    rules:
+      - alert: HighErrorRate
+        expr: rate(errors_total[5m]) > 0.05
+        annotations:
+          summary: "High error rate detected"
+
+      - alert: QueueBacklog
+        expr: queue_size > 50
+        annotations:
+          summary: "Task queue backlog"
+
+      - alert: HighMemoryUsage
+        expr: memory_usage_percent > 85
+        annotations:
+          summary: "High memory usage"
+```
+
+---
+
+## 📁 日誌管理
+
+### 日誌位置和類型
+
+| 日誌文件 | 路徑 | 保存期限 | 大小限制 |
+|---------|------|---------|---------|
+| auth.log | `logs/auth.log` | 180 天 | 10 MB/檔 |
+| operation.log | `logs/operation.log` | 180 天 | 50 MB/檔 |
+| security.log | `logs/security.log` | 365 天 | 10 MB/檔 |
+| error.log | `logs/error.log` | 180 天 | 20 MB/檔 |
+| audit.log | `logs/audit.log` | 1825 天 | 50 MB/檔 |
+
+### 日誌輪替
+
+系統使用 Python 的 `RotatingFileHandler` 自動輪替日誌。
+
+#### 手動觸發日誌輪替
+
+```bash
+# 重啟服務會自動檢查並輪替日誌
+sudo systemctl restart speech-to-text
+```
+
+### 日誌分析常用命令
+
+```bash
+# 統計某IP的請求次數
+grep "192.168.1.100" logs/*.log | wc -l
+
+# 查找特定用戶的所有操作
+grep "user@example.com" logs/operation.log
+
+# 查找某天的所有錯誤
+grep "2025-01-10" logs/error.log
+
+# 分析最常見的錯誤類型
+grep "ERROR" logs/error.log | jq -r '.event_type' | sort | uniq -c | sort -rn
+
+# 查找被封禁的 IP
+grep "BLACKLISTED_IP_ATTEMPT" logs/security.log
+```
+
+### 日誌導出
+
+```bash
+# 導出特定日期範圍的日誌
+grep -E "2025-01-(10|11|12)" logs/operation.log > operation_jan10-12.log
+
+# 轉換為 CSV 格式（用於分析）
+cat logs/auth.log | jq -r '[.timestamp, .user_id, .ip_address, .result] | @csv' > auth.csv
+```
+
+---
+
+## 💾 備份和恢復
+
+### 備份策略
+
+#### 1. 配置文件備份（每日）
+
+```bash
+#!/bin/bash
+# backup-config.sh
+
+BACKUP_DIR="/backup/config"
+DATE=$(date +%Y%m%d)
+
+# 創建備份目錄
+mkdir -p $BACKUP_DIR
+
+# 備份 .env 文件（加密）
+tar -czf - remote_server/.env | gpg -c > $BACKUP_DIR/env-$DATE.tar.gz.gpg
+
+echo "配置備份完成: $BACKUP_DIR/env-$DATE.tar.gz.gpg"
+```
+
+#### 2. 日誌備份（每日）
+
+```bash
+#!/bin/bash
+# backup-logs.sh
+
+BACKUP_DIR="/backup/logs"
+DATE=$(date +%Y%m%d)
+
+# 創建備份目錄
+mkdir -p $BACKUP_DIR
+
+# 備份日誌
+tar -czf $BACKUP_DIR/logs-$DATE.tar.gz remote_server/logs/
+
+# 刪除 30 天前的備份
+find $BACKUP_DIR -name "logs-*.tar.gz" -mtime +30 -delete
+
+echo "日誌備份完成: $BACKUP_DIR/logs-$DATE.tar.gz"
+```
+
+#### 3. 自動備份（Crontab）
+
+```bash
+# 編輯 crontab
+crontab -e
+
+# 添加以下行
+# 每天凌晨 2 點備份日誌
+0 2 * * * /opt/speech-to-text/backup-logs.sh
+
+# 每天凌晨 3 點備份配置
+0 3 * * * /opt/speech-to-text/backup-config.sh
+```
+
+### 恢復流程
+
+#### 1. 恢復配置文件
+
+```bash
+# 解密並恢復 .env
+gpg -d /backup/config/env-20250110.tar.gz.gpg | tar -xzf - -C /
+```
+
+#### 2. 恢復日誌
+
+```bash
+# 恢復日誌
+tar -xzf /backup/logs/logs-20250110.tar.gz -C /opt/speech-to-text/
+```
+
+#### 3. 驗證恢復
+
+```bash
+# 檢查文件完整性
+ls -lh remote_server/.env
+ls -lh remote_server/logs/
+
+# 測試服務啟動
+sudo systemctl start speech-to-text
+sudo systemctl status speech-to-text
+```
+
+---
+
+## 🔧 故障排除
+
+### 常見問題
+
+#### 1. 服務無法啟動
+
+**症狀**：`systemctl start speech-to-text` 失敗
+
+**排查步驟**：
+
+```bash
+# 查看詳細錯誤
+sudo journalctl -u speech-to-text -n 100 --no-pager
+
+# 檢查配置文件
+cat remote_server/.env
+
+# 檢查Python環境
+source .venv/bin/activate
+python api.py
+```
+
+**常見原因**：
+- `.env` 文件缺失或格式錯誤
+- 依賴套件未安裝
+- 端口被占用
+- 權限問題
+
+#### 2. 郵件發送失敗
+
+**症狀**：驗證碼或結果郵件未收到
+
+**排查步驟**：
+
+```bash
+# 查看錯誤日誌
+grep "EMAIL_SEND_FAILURE" logs/error.log | tail -10
+
+# 測試 SMTP 連線
+python -c "
+from email_service import email_service
+result = email_service.send_verification_email('test@example.com')
+print('Success' if result else 'Failed')
+"
+```
+
+**常見原因**：
+- SMTP 憑證錯誤
+- Gmail 未啟用應用程式密碼
+- 防火牆阻擋 SMTP 端口
+- 郵件被標記為垃圾郵件
+
+#### 3. 任務處理緩慢
+
+**症狀**：任務長時間處於 processing 狀態
+
+**排查步驟**：
+
+```bash
+# 檢查任務隊列
+curl http://localhost:8100/api/stats
+
+# 檢查資源使用
+top -bn1 | grep python
+
+# 查看任務處理日誌
+tail -f logs/operation.log | grep TASK
+```
+
+**常見原因**：
+- CPU/記憶體不足
+- 模型載入失敗
+- 音頻文件過大或損壞
+- 同時處理過多任務
+
+#### 4. 速率限制誤觸發
+
+**症狀**：正常用戶收到 429 錯誤
+
+**排查步驟**：
+
+```bash
+# 查看速率限制日誌
+grep "RATE_LIMIT_EXCEEDED" logs/security.log | tail -20
+
+# 檢查黑名單
+python -c "
+from rate_limiter import rate_limiter
+ip = '192.168.1.100'
+is_banned, remaining = rate_limiter.is_ip_blacklisted(ip)
+print(f'IP {ip}: Banned={is_banned}, Remaining={remaining}')
+"
+```
+
+**解決方案**：
+- 調整速率限制參數（`rate_limiter.py`）
+- 手動移除黑名單（重啟服務）
+- 使用IP白名單（需修改代碼）
+
+#### 5. 日誌文件過大
+
+**症狀**：磁碟空間不足
+
+**排查步驟**：
+
+```bash
+# 檢查日誌大小
+du -sh logs/*.log
+
+# 查看最大的日誌文件
+du -h logs/*.log | sort -hr | head -5
+```
+
+**解決方案**：
+
+```bash
+# 手動輪替日誌
+cd logs
+for file in *.log; do
+    mv $file $file.old
+    touch $file
+done
+
+# 重啟服務
+sudo systemctl restart speech-to-text
+
+# 壓縮舊日誌
+gzip *.log.old
+```
+
+---
+
+## ⚡ 性能調優
+
+### 系統層面
+
+#### 1. 調整 Uvicorn 工作進程
+
+```bash
+# 修改 systemd 服務文件
+sudo nano /etc/systemd/system/speech-to-text.service
+
+# 修改 ExecStart 行
+ExecStart=/opt/speech-to-text/.venv/bin/uvicorn api:app --host 0.0.0.0 --port 8100 --workers 4
+
+# 重新載入並重啟
+sudo systemctl daemon-reload
+sudo systemctl restart speech-to-text
+```
+
+#### 2. 調整系統限制
+
+```bash
+# 編輯 limits.conf
+sudo nano /etc/security/limits.conf
+
+# 添加以下行
+* soft nofile 65536
+* hard nofile 65536
+```
+
+### 應用層面
+
+#### 1. 調整速率限制
+
+編輯 `rate_limiter.py`，根據實際情況調整：
+
+```python
+# 增加 IP 速率限制
+max_requests=200,  # 從 100 增加到 200
+time_window=60
+
+# 增加任務創建限制
+max_tasks=20,  # 從 10 增加到 20
+time_window=3600
+```
+
+#### 2. 優化模型載入
+
+- 使用較小的模型（如 `base` 而非 `large`）
+- 禁用語者分離（如不需要）
+- 調整 compute_type（使用 `int8` 而非 `float32`）
+
+### 監控性能指標
+
+```bash
+# 安裝並使用 py-spy 進行性能分析
+pip install py-spy
+
+# 記錄性能數據
+sudo py-spy record -o profile.svg --pid $(pgrep -f "uvicorn api:app")
+```
+
+---
+
+## 🔒 安全維護
+
+### 定期安全檢查
+
+#### 1. 檢查未授權訪問
+
+```bash
+# 查找未授權訪問嘗試
+grep "UNAUTHORIZED_ACCESS" logs/security.log
+
+# 查找被封禁的 IP
+grep "BLACKLISTED_IP" logs/security.log | cut -d'"' -f4 | sort | uniq -c
+```
+
+#### 2. 審計個資訪問
+
+```bash
+# 查看所有個資訪問記錄
+grep "PERSONAL_DATA_ACCESS" logs/audit.log
+
+# 統計每個用戶的訪問次數
+grep "PERSONAL_DATA_ACCESS" logs/audit.log | jq -r '.user_id' | sort | uniq -c
+```
+
+#### 3. 更新安全憑證
+
+```bash
+# 更換 ADMIN_TOKEN
+python -c "import secrets; print('ADMIN_TOKEN=' + secrets.token_hex(32))" >> .env.new
+
+# 備份舊配置
+cp .env .env.backup
+
+# 應用新配置
+mv .env.new .env
+
+# 重啟服務
+sudo systemctl restart speech-to-text
+```
+
+---
+
+## 🔄 升級流程
+
+### 版本升級步驟
+
+#### 1. 準備階段
+
+```bash
+# 備份當前版本
+cp -r /opt/speech-to-text /opt/speech-to-text.backup
+
+# 備份配置
+cp remote_server/.env .env.backup
+
+# 備份數據庫（如有）
+```
+
+#### 2. 升級階段
+
+```bash
+# 停止服務
+sudo systemctl stop speech-to-text
+
+# 拉取最新代碼
+git pull origin main
+
+# 更新依賴
+cd remote_server
+pip install --upgrade -r requirements.txt
+
+# 比較配置文件
+diff .env.example .env.backup
+```
+
+#### 3. 測試階段
+
+```bash
+# 在測試環境運行
+python api.py
+
+# 執行健康檢查
+curl http://localhost:8100/health
+
+# 執行基本測試
+curl -X POST "http://localhost:8100/api/email/send-verification?email=test@example.com"
+```
+
+#### 4. 上線階段
+
+```bash
+# 啟動服務
+sudo systemctl start speech-to-text
+
+# 監控日誌
+tail -f logs/*.log
+
+# 驗證功能
+# 執行完整的功能測試
+```
+
+#### 5. 回滾（如需要）
+
+```bash
+# 停止服務
+sudo systemctl stop speech-to-text
+
+# 恢復舊版本
+rm -rf /opt/speech-to-text
+mv /opt/speech-to-text.backup /opt/speech-to-text
+
+# 恢復配置
+cp .env.backup /opt/speech-to-text/remote_server/.env
+
+# 啟動服務
+sudo systemctl start speech-to-text
+```
+
+---
+
+## 📞 聯繫和支援
+
+### 緊急聯繫
+
+- **技術支援**：[技術團隊郵箱]
+- **安全事件**：[安全團隊郵箱]
+- **運維團隊**：[運維團隊郵箱]
+
+### 相關資源
+
+- [SECURITY.md](SECURITY.md) - 安全文檔
+- [INSTALL.md](INSTALL.md) - 安裝指南
+- [SECURITY-CHECKLIST.md](SECURITY-CHECKLIST.md) - 安全檢查清單
+- GitHub Issues - 問題追蹤
+
+---
+
+**最後更新日期**：2025-01-10
+**適用版本**：v2.1.0 (SSDLC Compliant)
