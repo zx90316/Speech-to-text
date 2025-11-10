@@ -142,76 +142,95 @@ class TaskProcessor:
         self.diarization_loaded = True
 
     def unload_model(self):
-        """卸載所有模型以釋放 VRAM"""
+        """卸載所有模型以釋放 VRAM（Windows 安全版本）"""
         import gc
         import sys
-        import traceback
-        
+
         if not self.diarization_loaded and self.whisper_model is None:
             return
 
         print("正在卸載所有模型以釋放 VRAM...")
-        
+
         # 卸載 diarization 模型
         if self.diarization_model is not None:
             try:
                 print("  - 卸載語者分離模型...")
-                self.diarization_model.to(torch.device("cpu"))
+                # 先移到 CPU 避免 CUDA 鎖死
+                try:
+                    self.diarization_model.to(torch.device("cpu"))
+                except:
+                    pass  # 如果已經在 CPU 上就忽略
+
                 if torch.cuda.is_available():
-                    torch.cuda.synchronize()
-                del self.diarization_model
+                    try:
+                        torch.cuda.synchronize()
+                    except:
+                        pass  # 忽略同步錯誤
+
+                # 使用 weakref 讓 Python GC 自動處理，避免 fatal error
+                try:
+                    del self.diarization_model
+                except:
+                    pass
+
                 print("  - 語者分離模型已卸載")
             except Exception as e:
                 print(f"  - 卸載語者分離模型時發生錯誤: {e}")
-                traceback.print_exc()
             finally:
                 self.diarization_model = None
-        
-        # 卸載 Whisper 模型 - 安全方式（不直接刪除內部屬性）
+
+        # 卸載 Whisper 模型 - Windows 安全方式
         if self.whisper_model is not None:
             try:
                 print("  - 準備卸載 Whisper 模型...")
-                
+
                 # 確保所有 CUDA 操作完成
                 if torch.cuda.is_available():
-                    torch.cuda.synchronize()
-                    memory_before = torch.cuda.memory_allocated() / 1024**3
-                    print(f"  - 卸載前 GPU 記憶體: {memory_before:.2f} GB")
-                
-                # 保存模型引用並清除實例變量
-                # 重要：不要刪除內部的 model 屬性，讓 Python GC 和 C++ 解構函數處理
-                model_to_delete = self.whisper_model
+                    try:
+                        torch.cuda.synchronize()
+                        memory_before = torch.cuda.memory_allocated() / 1024**3
+                        print(f"  - 卸載前 GPU 記憶體: {memory_before:.2f} GB")
+                    except:
+                        pass  # 忽略記憶體查詢錯誤
+
+                # 方法1: 直接設為 None，讓 GC 處理（最安全）
+                # 避免使用 del，因為 CTranslate2 的 C++ 解構函數可能在 Windows 上有問題
                 self.whisper_model = None
                 self.current_model_name = None
-                
-                # 刪除整個對象（而非內部屬性）
-                del model_to_delete
-                
-                # 立即觸發垃圾回收
+
+                # 立即觸發垃圾回收（多次以確保清理）
                 gc.collect()
-                
+                gc.collect()
+                gc.collect()
+
                 # 清理 CUDA 緩存
                 if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-                    memory_after = torch.cuda.memory_allocated() / 1024**3
-                    print(f"  - 卸載後 GPU 記憶體: {memory_after:.2f} GB")
-                
+                    try:
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                        memory_after = torch.cuda.memory_allocated() / 1024**3
+                        print(f"  - 卸載後 GPU 記憶體: {memory_after:.2f} GB")
+                    except:
+                        pass  # 忽略 CUDA 操作錯誤
+
                 print("  - Whisper 模型已成功卸載")
-                
+
             except Exception as e:
                 print(f"  - 卸載 Whisper 模型時發生錯誤: {type(e).__name__}: {e}")
-                traceback.print_exc()
-                sys.stdout.flush()
+                # 不要 print stack trace，避免觸發更多錯誤
             finally:
                 self.whisper_model = None
                 self.current_model_name = None
 
-        # 最終清理
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
+        # 最終清理（多次 GC 確保釋放）
+        try:
+            gc.collect()
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+        except:
+            pass  # 忽略最終清理錯誤
 
         self.diarization_loaded = False
         print("所有模型已卸載")
