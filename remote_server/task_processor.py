@@ -7,11 +7,19 @@ import time
 import subprocess
 import asyncio
 from pathlib import Path
+
+#https://github.com/tencent-ailab/SongPrep/issues/5#issuecomment-3478738144
+# Add FFmpeg DLL directory for Windows (Python 3.8+)
+ffmpeg_dll_dir = Path(__file__).parent.parent / "ffmpeg-master-latest-win64-gpl-shared" / "bin"
+if ffmpeg_dll_dir.exists():
+    os.add_dll_directory(str(ffmpeg_dll_dir))
+    os.environ["PATH"] += os.pathsep + str(ffmpeg_dll_dir)
+
 from typing import Optional, List, Dict, Any
 from pyannote.core import Segment
 import torch
-#torch.backends.cuda.matmul.allow_tf32 = True
-#torch.backends.cudnn.allow_tf32 = True
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 from opencc import OpenCC
 from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline
@@ -30,12 +38,6 @@ load_dotenv()
 cc = OpenCC('s2twp')
 
 # 注意：本檔案中所有的 memory_manager 都應替換為 memory_manager
-
-# 添加 FFmpeg 路徑
-ffmpeg_path = Path(__file__).parent.parent / "ffmpeg-7.1.1-full_build-shared" / "bin"
-if ffmpeg_path.exists():
-    os.environ["PATH"] += os.pathsep + str(ffmpeg_path)
-
 
 class CustomProgressHook:
     """自訂進度追蹤 Hook"""
@@ -149,12 +151,6 @@ class TaskProcessor:
             del self.diarization_model
             self.diarization_model = None
         if self.whisper_model is not None:
-            try:
-                if hasattr(self.whisper_model, 'to'):
-                    self.whisper_model.to(torch.device('cpu'))
-            except Exception as e:
-                print(f"Whisper 模型移到 CPU 失敗: {e}")
-            del self.whisper_model
             self.whisper_model = None
 
         gc.collect()

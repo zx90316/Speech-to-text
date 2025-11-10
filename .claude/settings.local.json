@@ -12,7 +12,9 @@
       "Bash(\"c:\\Users\\CWT\\Speech-to-text\\frontend\\src\\styles\\main.css\")",
       "Bash(dir /s /b *.py *.ts *.tsx 2)",
       "Bash(nul)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(dir:*)",
+      "Bash(.venv/Scripts/python.exe:*)"
     ],
     "deny": [],
     "ask": []

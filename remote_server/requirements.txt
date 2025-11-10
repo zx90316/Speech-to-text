@@ -2,10 +2,10 @@
 --extra-index-url https://download.pytorch.org/whl/cu129
 
 # PyTorch 相關套件
-torch
+torch==2.9.0+cu129
 torchvision
 torchaudio
-torchcodec
+torchcodec==0.8.1
 
 # Web 框架與伺服器
 fastapi
