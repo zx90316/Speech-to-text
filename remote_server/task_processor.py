@@ -143,14 +143,10 @@ class TaskProcessor:
 
         print("正在卸載所有模型以釋放 VRAM...")
         if self.diarization_model is not None:
-            try:
-                if hasattr(self.diarization_model, 'to'):
-                    self.diarization_model.to(torch.device('cpu'))
-            except Exception as e:
-                print(f"語者分離模型移到 CPU 失敗: {e}")
             del self.diarization_model
             self.diarization_model = None
         if self.whisper_model is not None:
+            del self.whisper_model
             self.whisper_model = None
 
         gc.collect()
@@ -696,16 +692,50 @@ class TaskProcessor:
 
             word_timestamps = enable_confidence_score == 1
 
-            segments, info = self.whisper_model.transcribe(
-                audio=str(converted_audio_path),
-                language=language,
-                task=task,
-                beam_size=beam_size,  # 減少 beam size 以降低記憶體使用
-                vad_filter=True,  # 啟用 VAD 過濾靜音片段
-                vad_parameters=vad_parameters,  # 使用進階 VAD 參數
-                word_timestamps=word_timestamps,  # True 即可啟用詞級時間戳
-                log_progress=True,
-            )
+            # 嘗試轉錄，如果失敗則自動降級到更兼容的計算類型
+            try:
+                segments, info = self.whisper_model.transcribe(
+                    audio=str(converted_audio_path),
+                    language=language,
+                    task=task,
+                    beam_size=beam_size,  # 減少 beam size 以降低記憶體使用
+                    vad_filter=True,  # 啟用 VAD 過濾靜音片段
+                    vad_parameters=vad_parameters,  # 使用進階 VAD 參數
+                    word_timestamps=word_timestamps,  # True 即可啟用詞級時間戳
+                    log_progress=True,
+                )
+            except Exception as e:
+                error_msg = str(e)
+                # 檢查是否為 cuBLAS 不支持的錯誤（int8 在某些 GPU 上不支持）
+                if "cuBLAS" in error_msg or "CUBLAS_STATUS_NOT_SUPPORTED" in error_msg:
+                    print(f"⚠️ {compute_type} 計算類型不支持，自動切換到 float16...")
+
+                    # 重新載入模型並使用 float16
+                    fallback_compute_type = "float16"
+                    fallback_beam_size = 5
+                    self.load_whisper_model(model, fallback_compute_type)
+
+                    memory_manager.update_task_status(
+                        task_id,
+                        'processing',
+                        progress=30.0,
+                        current_stage=f'使用語音辨識 (已切換到 {fallback_compute_type})'
+                    )
+
+                    # 重試轉錄
+                    segments, info = self.whisper_model.transcribe(
+                        audio=str(converted_audio_path),
+                        language=language,
+                        task=task,
+                        beam_size=fallback_beam_size,
+                        vad_filter=True,
+                        vad_parameters=vad_parameters,
+                        word_timestamps=word_timestamps,
+                        log_progress=True,
+                    )
+                else:
+                    # 其他錯誤直接拋出
+                    raise
 
             # 獲取音訊總時長用於進度計算
             audio_duration = info.duration if hasattr(info, 'duration') else None

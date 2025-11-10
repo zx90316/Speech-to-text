@@ -99,7 +99,8 @@ async def add_security_headers(request: Request, call_next):
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"  # 權限策略
 
     # 移除可能洩露服務器信息的標頭
-    response.headers.pop("Server", None)
+    if "Server" in response.headers:
+        del response.headers["Server"]
 
     return response
 
@@ -781,7 +782,7 @@ if __name__ == "__main__":
         "api:app",
         host="0.0.0.0",
         port=8100,
-        reload=True,
+        reload=False,
         log_level="info"
     )
 

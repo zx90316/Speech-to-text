@@ -8,7 +8,7 @@ import secrets
 from typing import Optional, Tuple
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
 import base64
 
@@ -37,7 +37,8 @@ class CryptoUtils:
 
         if key_str:
             try:
-                return base64.urlsafe_b64decode(key_str)
+                # Fernet key is already base64-encoded, just convert string to bytes
+                return key_str.encode()
             except Exception:
                 print("警告：無效的 ENCRYPTION_KEY，將生成新的金鑰")
 
@@ -68,7 +69,7 @@ class CryptoUtils:
             salt = base64.b64decode(salt)
 
         # 使用 PBKDF2 進行 100,000 次迭代
-        kdf = PBKDF2(
+        kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
             salt=salt,
@@ -337,7 +338,4 @@ class CryptoUtils:
                 pass
 
 crypto_utils = CryptoUtils()
-
-if __name__ == "__main__":
-    print(crypto_utils.generate_secure_token())
     
