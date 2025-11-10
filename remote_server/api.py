@@ -778,13 +778,37 @@ async def admin_cleanup_old_tasks(
 
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "api:app",
-        host="0.0.0.0",
-        port=8100,
-        reload=False,
-        log_level="info",
-        ssl_keyfile="C:\\nginx\\ssl\\server-key.pem",
-        ssl_certfile="C:\\nginx\\ssl\\server-cert.pem"
-    )
+    # SSL/TLS 配置（直接在 Uvicorn 層處理 HTTPS）
+    ssl_keyfile = os.getenv("SSL_KEYFILE", "C:\\nginx\\ssl\\server-key.pem")
+    ssl_certfile = os.getenv("SSL_CERTFILE", "C:\\nginx\\ssl\\server-cert.pem")
+
+    # 檢查是否啟用 HTTPS
+    use_https = os.getenv("USE_HTTPS", "true").lower() == "true"
+
+    # 生產環境建議配置
+    uvicorn_config = {
+        "app": "api:app",
+        "host": "0.0.0.0",
+        "port": 8100,
+        "reload": False,
+        "log_level": "info",
+        "workers": int(os.getenv("UVICORN_WORKERS", "1")),  # 多 worker 支援（注意：記憶體儲存在多 worker 下不共享）
+        "timeout_keep_alive": 75,
+        "limit_concurrency": 100,
+        "limit_max_requests": 10000,  # 每個 worker 處理 10000 個請求後重啟（防止記憶體洩漏）
+    }
+
+    # 如果啟用 HTTPS 且憑證檔案存在，則添加 SSL 配置
+    if use_https and Path(ssl_keyfile).exists() and Path(ssl_certfile).exists():
+        uvicorn_config["ssl_keyfile"] = ssl_keyfile
+        uvicorn_config["ssl_certfile"] = ssl_certfile
+        print(f"✓ HTTPS 已啟用 - 使用憑證: {ssl_certfile}")
+    else:
+        if use_https:
+            print(f"⚠ 警告：USE_HTTPS=true 但憑證檔案不存在，將使用 HTTP")
+            print(f"  - Keyfile: {ssl_keyfile}")
+            print(f"  - Certfile: {ssl_certfile}")
+        print("✓ HTTP 模式（開發環境）")
+
+    uvicorn.run(**uvicorn_config)
 
