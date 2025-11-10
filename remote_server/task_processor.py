@@ -142,16 +142,35 @@ class TaskProcessor:
             return
 
         print("正在卸載所有模型以釋放 VRAM...")
+        
+        # 卸載 diarization 模型
         if self.diarization_model is not None:
-            self.diarization_model.to(torch.device("cpu"))
-            del self.diarization_model
-            self.diarization_model = None
+            try:
+                self.diarization_model.to(torch.device("cpu"))
+                del self.diarization_model
+            except Exception as e:
+                print(f"卸載語者分離模型時發生錯誤: {e}")
+            finally:
+                self.diarization_model = None
+        
+        # 卸載 Whisper 模型 - 使用更安全的方式
         if self.whisper_model is not None:
-            self.whisper_model = None
+            try:
+                # faster-whisper 的清理方式：先嘗試卸載內部資源
+                if hasattr(self.whisper_model, 'model'):
+                    del self.whisper_model.model
+                # 使用弱引用方式清除
+                self.whisper_model = None
+                # 立即觸發垃圾回收
+                gc.collect()
+            except Exception as e:
+                print(f"卸載 Whisper 模型時發生錯誤: {e}")
+                self.whisper_model = None
 
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()  # 確保 CUDA 操作完成
 
         self.diarization_loaded = False
         print("所有模型已卸載")
