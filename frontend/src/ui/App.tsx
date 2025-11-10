@@ -156,8 +156,8 @@ function App() {
           Powered by <strong>Faster-Whisper</strong> • <strong>Pyannote Audio</strong>
         </p>
         <p className="api-docs">
-          API 文檔：<a href="http://localhost:8100/docs" target="_blank" rel="noopener noreferrer">
-            http://localhost:8100/docs
+          API 文檔：<a href="https://localhost:8100/docs" target="_blank" rel="noopener noreferrer">
+            https://localhost:8100/docs
           </a>
         </p>
       </footer>

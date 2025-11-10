@@ -540,7 +540,7 @@ async def get_stats():
 # ==================== 郵件驗證 API ====================
 
 @app.post("/api/email/send-verification", summary="發送郵件驗證碼")
-@limiter.limit("5/hour")  # 每小時最多 5 次
+@limiter.limit("60/hour")  # 每小時最多 5 次
 async def send_verification_email(
     request: Request,
     email: str = Query(..., description="郵件地址")
@@ -783,6 +783,8 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8100,
         reload=False,
-        log_level="info"
+        log_level="info",
+        ssl_keyfile="C:\\nginx\\ssl\\server-key.pem",
+        ssl_certfile="C:\\nginx\\ssl\\server-cert.pem"
     )
 

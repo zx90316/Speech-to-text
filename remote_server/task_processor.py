@@ -143,10 +143,10 @@ class TaskProcessor:
 
         print("正在卸載所有模型以釋放 VRAM...")
         if self.diarization_model is not None:
+            self.diarization_model.to(torch.device("cpu"))
             del self.diarization_model
             self.diarization_model = None
         if self.whisper_model is not None:
-            del self.whisper_model
             self.whisper_model = None
 
         gc.collect()
