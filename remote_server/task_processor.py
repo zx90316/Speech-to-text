@@ -7,6 +7,12 @@ import time
 import subprocess
 import asyncio
 from pathlib import Path
+import faulthandler
+import sys
+
+# 啟用 faulthandler 以捕獲 segmentation fault 等嚴重錯誤
+# 將錯誤信息輸出到 stderr，幫助診斷 C++ 擴展模組的崩潰問題
+faulthandler.enable(file=sys.stderr, all_threads=True)
 
 #https://github.com/tencent-ailab/SongPrep/issues/5#issuecomment-3478738144
 # Add FFmpeg DLL directory for Windows (Python 3.8+)
@@ -138,6 +144,9 @@ class TaskProcessor:
     def unload_model(self):
         """卸載所有模型以釋放 VRAM"""
         import gc
+        import sys
+        import traceback
+        
         if not self.diarization_loaded and self.whisper_model is None:
             return
 
@@ -146,34 +155,67 @@ class TaskProcessor:
         # 卸載 diarization 模型
         if self.diarization_model is not None:
             try:
+                print("  - 卸載語者分離模型...")
                 self.diarization_model.to(torch.device("cpu"))
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
                 del self.diarization_model
+                print("  - 語者分離模型已卸載")
             except Exception as e:
-                print(f"卸載語者分離模型時發生錯誤: {e}")
+                print(f"  - 卸載語者分離模型時發生錯誤: {e}")
+                traceback.print_exc()
             finally:
                 self.diarization_model = None
         
-        # 卸載 Whisper 模型 - 使用更安全的方式
+        # 卸載 Whisper 模型 - 安全方式（不直接刪除內部屬性）
         if self.whisper_model is not None:
             try:
-                # faster-whisper 的清理方式：先嘗試卸載內部資源
-                if hasattr(self.whisper_model, 'model'):
-                    del self.whisper_model.model
-                # 使用弱引用方式清除
+                print("  - 準備卸載 Whisper 模型...")
+                
+                # 確保所有 CUDA 操作完成
+                if torch.cuda.is_available():
+                    torch.cuda.synchronize()
+                    memory_before = torch.cuda.memory_allocated() / 1024**3
+                    print(f"  - 卸載前 GPU 記憶體: {memory_before:.2f} GB")
+                
+                # 保存模型引用並清除實例變量
+                # 重要：不要刪除內部的 model 屬性，讓 Python GC 和 C++ 解構函數處理
+                model_to_delete = self.whisper_model
                 self.whisper_model = None
+                self.current_model_name = None
+                
+                # 刪除整個對象（而非內部屬性）
+                del model_to_delete
+                
                 # 立即觸發垃圾回收
                 gc.collect()
+                
+                # 清理 CUDA 緩存
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    memory_after = torch.cuda.memory_allocated() / 1024**3
+                    print(f"  - 卸載後 GPU 記憶體: {memory_after:.2f} GB")
+                
+                print("  - Whisper 模型已成功卸載")
+                
             except Exception as e:
-                print(f"卸載 Whisper 模型時發生錯誤: {e}")
+                print(f"  - 卸載 Whisper 模型時發生錯誤: {type(e).__name__}: {e}")
+                traceback.print_exc()
+                sys.stdout.flush()
+            finally:
                 self.whisper_model = None
+                self.current_model_name = None
 
+        # 最終清理
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-            torch.cuda.synchronize()  # 確保 CUDA 操作完成
+            torch.cuda.synchronize()
 
         self.diarization_loaded = False
         print("所有模型已卸載")
+        sys.stdout.flush()
     
     def unload_diarization_model(self):
         """只卸載語者分離模型以釋放 VRAM（保留 Whisper 模型）"""

@@ -1519,3 +1519,7 @@ body {
   font-weight: 500;
   cursor: default;
 }
+
+.time-input-number{
+  max-width: 60px;
+}

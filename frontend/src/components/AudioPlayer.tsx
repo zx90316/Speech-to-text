@@ -136,27 +136,144 @@ export function AudioPlayer({ file, onTimeRangeChange }: AudioPlayerProps) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // 將秒數轉換為分鐘和秒
+  const secondsToMinutesAndSeconds = (totalSeconds: number): { minutes: number; seconds: number } => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = Math.floor(totalSeconds % 60);
+    return { minutes: mins, seconds: secs };
+  };
+
+  // 驗證並調整時間範圍
+  const validateTimeRange = (start: number, end: number): { start: number; end: number } => {
+    let validStart = start;
+    let validEnd = end;
+
+    // 確保開始時間不小於 0
+    validStart = Math.max(0, validStart);
+
+    // 確保結束時間不大於音頻時長
+    validEnd = Math.min(duration, validEnd);
+
+    // 確保結束時間大於 0
+    validEnd = Math.max(0.1, validEnd);
+
+    // 確保開始時間小於結束時間（至少相差 0.1 秒）
+    if (validStart >= validEnd) {
+      validStart = Math.max(0, validEnd - 0.1);
+    }
+
+    return { start: validStart, end: validEnd };
+  };
+
   const handleStartTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const audio = audioRef.current;
-    const time = parseFloat(e.target.value);
-    setStartTime(time);
+    let time = parseFloat(e.target.value);
+    
+    // 驗證時間範圍
+    const validated = validateTimeRange(time, endTime);
+    setStartTime(validated.start);
+    setEndTime(validated.end);
     setIsSelectingRange(true);
 
     // 如果正在播放且當前時間在新開始時間之前，跳轉到新開始時間
-    if (audio && isPlaying && audio.currentTime < time) {
-      audio.currentTime = time;
+    if (audio && isPlaying && audio.currentTime < validated.start) {
+      audio.currentTime = validated.start;
     }
   };
 
   const handleEndTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const audio = audioRef.current;
-    const time = parseFloat(e.target.value);
-    setEndTime(time);
+    let time = parseFloat(e.target.value);
+    
+    // 驗證時間範圍
+    const validated = validateTimeRange(startTime, time);
+    setStartTime(validated.start);
+    setEndTime(validated.end);
     setIsSelectingRange(true);
 
     // 如果正在播放且當前時間超過新結束時間，跳轉到開始時間
-    if (audio && isPlaying && audio.currentTime >= time) {
-      audio.currentTime = startTime;
+    if (audio && isPlaying && audio.currentTime >= validated.end) {
+      audio.currentTime = validated.start;
+    }
+  };
+
+  // 處理開始時間分鐘輸入
+  const handleStartMinuteInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const audio = audioRef.current;
+    const mins = parseInt(e.target.value) || 0;
+    const { seconds } = secondsToMinutesAndSeconds(startTime);
+    const time = Math.max(0, mins * 60 + seconds);
+    
+    // 驗證時間範圍
+    const validated = validateTimeRange(time, endTime);
+    setStartTime(validated.start);
+    setEndTime(validated.end);
+    setIsSelectingRange(true);
+
+    // 如果正在播放且當前時間在新開始時間之前，跳轉到新開始時間
+    if (audio && isPlaying && audio.currentTime < validated.start) {
+      audio.currentTime = validated.start;
+    }
+  };
+
+  // 處理開始時間秒鐘輸入
+  const handleStartSecondInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const audio = audioRef.current;
+    let secs = parseInt(e.target.value) || 0;
+    // 限制秒數範圍 0-59
+    secs = Math.max(0, Math.min(59, secs));
+    const { minutes } = secondsToMinutesAndSeconds(startTime);
+    const time = minutes * 60 + secs;
+    
+    // 驗證時間範圍
+    const validated = validateTimeRange(time, endTime);
+    setStartTime(validated.start);
+    setEndTime(validated.end);
+    setIsSelectingRange(true);
+
+    // 如果正在播放且當前時間在新開始時間之前，跳轉到新開始時間
+    if (audio && isPlaying && audio.currentTime < validated.start) {
+      audio.currentTime = validated.start;
+    }
+  };
+
+  // 處理結束時間分鐘輸入
+  const handleEndMinuteInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const audio = audioRef.current;
+    const mins = parseInt(e.target.value) || 0;
+    const { seconds } = secondsToMinutesAndSeconds(endTime);
+    const time = Math.max(0, mins * 60 + seconds);
+    
+    // 驗證時間範圍
+    const validated = validateTimeRange(startTime, time);
+    setStartTime(validated.start);
+    setEndTime(validated.end);
+    setIsSelectingRange(true);
+
+    // 如果正在播放且當前時間超過新結束時間，跳轉到開始時間
+    if (audio && isPlaying && audio.currentTime >= validated.end) {
+      audio.currentTime = validated.start;
+    }
+  };
+
+  // 處理結束時間秒鐘輸入
+  const handleEndSecondInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const audio = audioRef.current;
+    let secs = parseInt(e.target.value) || 0;
+    // 限制秒數範圍 0-59
+    secs = Math.max(0, Math.min(59, secs));
+    const { minutes } = secondsToMinutesAndSeconds(endTime);
+    const time = minutes * 60 + secs;
+    
+    // 驗證時間範圍
+    const validated = validateTimeRange(startTime, time);
+    setStartTime(validated.start);
+    setEndTime(validated.end);
+    setIsSelectingRange(true);
+
+    // 如果正在播放且當前時間超過新結束時間，跳轉到開始時間
+    if (audio && isPlaying && audio.currentTime >= validated.end) {
+      audio.currentTime = validated.start;
     }
   };
 
@@ -228,30 +345,78 @@ export function AudioPlayer({ file, onTimeRangeChange }: AudioPlayerProps) {
       <div className="time-range-controls">
         <div className="time-range-group">
           <label>開始時間</label>
-          <input
-            type="range"
-            min="0"
-            max={duration || 0}
-            step="0.1"
-            value={startTime}
-            onChange={handleStartTimeChange}
-            disabled={!audioUrl}
-          />
-          <span className="time-value">{formatTime(startTime)}</span>
+          <div className="time-control-row">
+            <input
+              type="range"
+              min="0"
+              max={duration || 0}
+              step="0.1"
+              value={startTime}
+              onChange={handleStartTimeChange}
+              disabled={!audioUrl}
+              className="time-slider"
+            />
+            <div className="time-inputs">
+              <input
+                type="number"
+                className="time-input-number"
+                value={secondsToMinutesAndSeconds(startTime).minutes}
+                onChange={handleStartMinuteInput}
+                min="0"
+                disabled={!audioUrl}
+                placeholder="0"
+              />
+              <span className="time-separator">:</span>
+              <input
+                type="number"
+                className="time-input-number"
+                value={secondsToMinutesAndSeconds(startTime).seconds}
+                onChange={handleStartSecondInput}
+                min="0"
+                max="59"
+                disabled={!audioUrl}
+                placeholder="00"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="time-range-group">
           <label>結束時間</label>
-          <input
-            type="range"
-            min="0"
-            max={duration || 0}
-            step="0.1"
-            value={endTime}
-            onChange={handleEndTimeChange}
-            disabled={!audioUrl}
-          />
-          <span className="time-value">{formatTime(endTime)}</span>
+          <div className="time-control-row">
+            <input
+              type="range"
+              min="0"
+              max={duration || 0}
+              step="0.1"
+              value={endTime}
+              onChange={handleEndTimeChange}
+              disabled={!audioUrl}
+              className="time-slider"
+            />
+            <div className="time-inputs">
+              <input
+                type="number"
+                className="time-input-number"
+                value={secondsToMinutesAndSeconds(endTime).minutes}
+                onChange={handleEndMinuteInput}
+                min="0"
+                disabled={!audioUrl}
+                placeholder="0"
+              />
+              <span className="time-separator">:</span>
+              <input
+                type="number"
+                className="time-input-number"
+                value={secondsToMinutesAndSeconds(endTime).seconds}
+                onChange={handleEndSecondInput}
+                min="0"
+                max="59"
+                disabled={!audioUrl}
+                placeholder="00"
+              />
+            </div>
+          </div>
         </div>
 
         <button className="reset-range-button" onClick={resetTimeRange} disabled={!audioUrl}>

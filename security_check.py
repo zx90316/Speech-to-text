@@ -65,6 +65,14 @@ def run_bandit():
     json_report = f"security_reports/bandit_report_{timestamp}.json"
     txt_report = f"security_reports/bandit_report_{timestamp}.txt"
 
+    # JSON 格式報告
+    result_json = run_command(
+        [sys.executable, "-m", "bandit", "-r", ".",
+         "-f", "json", "-o", json_report,
+         "--exclude", "./venv_*,./official_models,./output,./logs,./temp_ocr,./.git"],
+        "Bandit 靜態分析 (JSON 格式)"
+    )
+
     # 文字格式報告
     result_txt = run_command(
         [sys.executable, "-m", "bandit", "-r", ".",
@@ -73,10 +81,13 @@ def run_bandit():
         "Bandit 靜態分析 (文字格式)"
     )
 
-    if result_txt and result_txt.stdout:
+    if result_txt and result_txt.stdout and result_json:
         # 儲存文字報告
         with open(txt_report, 'w', encoding='utf-8') as f:
             f.write(result_txt.stdout)
+
+        with open(json_report, 'w', encoding='utf-8') as f:
+            f.write(result_json.stdout)
 
         print(f"\n📄 報告已儲存:")
         print(f"   - JSON: {json_report}")
