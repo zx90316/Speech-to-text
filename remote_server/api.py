@@ -1,6 +1,7 @@
 """
 FastAPI 應用主檔案
 提供完整的語音轉文字 API 服務
+符合 SSDLC 安全要求
 """
 import os
 import uuid
@@ -13,11 +14,20 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Query, Depends
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import uvicorn
 
+# 導入安全模組
 from memory_storage import memory_manager
 from email_service import email_service
 from task_processor import task_processor
+from security_logger import security_logger
+from input_validator import input_validator
+from rate_limiter import rate_limiter
+from crypto_utils import crypto_utils
 
 
 @asynccontextmanager
@@ -37,22 +47,62 @@ async def lifespan(app: FastAPI):
     # Shutdown (if needed)
 
 
+# 創建速率限制器
+limiter = Limiter(key_func=get_remote_address)
+
 # 創建 FastAPI 應用
 app = FastAPI(
     title="Whisper 語音轉文字 API",
-    description="基於 Faster-Whisper 和 Pyannote 的語音轉文字服務，支援語者分離",
-    version="2.0.0",
-    lifespan=lifespan
+    description="基於 Faster-Whisper 和 Pyannote 的語音轉文字服務，支援語者分離（符合 SSDLC 安全要求）",
+    version="2.1.0",
+    lifespan=lifespan,
+    docs_url="/docs" if os.getenv("ENABLE_DOCS", "true").lower() == "true" else None,
+    redoc_url="/redoc" if os.getenv("ENABLE_DOCS", "true").lower() == "true" else None
 )
 
-# CORS 中介軟體
+# 註冊速率限制異常處理
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS 中介軟體（更安全的配置）
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,  # 改為白名單
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE"],  # 限制允許的方法
+    allow_headers=["Content-Type", "Authorization"],  # 限制允許的標頭
+    max_age=3600,  # 預檢請求緩存時間
 )
+
+# 信任主機中介軟體（防止 Host Header 攻擊）
+trusted_hosts = os.getenv("TRUSTED_HOSTS", "localhost,127.0.0.1").split(",")
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=trusted_hosts
+)
+
+
+# 安全標頭中介軟體
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """添加安全響應標頭"""
+    response = await call_next(request)
+
+    # 安全標頭（符合 SSDLC 要求）
+    response.headers["X-Content-Type-Options"] = "nosniff"  # 防止 MIME 類型嗅探
+    response.headers["X-Frame-Options"] = "DENY"  # 防止點擊劫持
+    response.headers["X-XSS-Protection"] = "1; mode=block"  # XSS 保護
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"  # HSTS
+    response.headers["Content-Security-Policy"] = "default-src 'self'"  # CSP
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"  # Referrer 策略
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"  # 權限策略
+
+    # 移除可能洩露服務器信息的標頭
+    response.headers.pop("Server", None)
+
+    return response
+
 
 # 創建必要的資料夾
 RESULT_DIR = Path(__file__).parent / "result"
@@ -489,7 +539,11 @@ async def get_stats():
 # ==================== 郵件驗證 API ====================
 
 @app.post("/api/email/send-verification", summary="發送郵件驗證碼")
-async def send_verification_email(email: str = Query(..., description="郵件地址")):
+@limiter.limit("5/hour")  # 每小時最多 5 次
+async def send_verification_email(
+    request: Request,
+    email: str = Query(..., description="郵件地址")
+):
     """
     發送郵件驗證碼
 
@@ -497,17 +551,55 @@ async def send_verification_email(email: str = Query(..., description="郵件地
 
     返回發送狀態
     """
-    # 驗證郵箱格式
-    import re
-    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    if not re.match(email_pattern, email):
-        raise HTTPException(status_code=400, detail="無效的郵箱格式")
+    ip_address = get_client_ip(request)
+
+    # 輸入驗證
+    is_valid, error = input_validator.validate_email(email)
+    if not is_valid:
+        security_logger.log_invalid_request(ip_address, "/api/email/send-verification", error)
+        raise HTTPException(status_code=400, detail=error)
+
+    # 速率限制檢查
+    is_allowed, error = rate_limiter.check_email_verification_rate_limit(email)
+    if not is_allowed:
+        security_logger.log_rate_limit_exceeded(ip_address, "/api/email/send-verification")
+        raise HTTPException(status_code=429, detail=error)
+
+    # 檢查 IP 和郵箱黑名單
+    is_blacklisted, remaining = rate_limiter.is_ip_blacklisted(ip_address)
+    if is_blacklisted:
+        security_logger.log_security_event(
+            "BLACKLISTED_IP_ATTEMPT",
+            ip_address,
+            "warning",
+            "Blacklisted IP attempted to send verification code"
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=f"IP 已被臨時封禁，請在 {remaining} 秒後再試"
+        )
+
+    is_blacklisted, remaining = rate_limiter.is_email_blacklisted(email)
+    if is_blacklisted:
+        raise HTTPException(
+            status_code=403,
+            detail=f"郵箱已被臨時封禁，請在 {remaining} 秒後再試"
+        )
 
     # 發送驗證碼
     success = email_service.send_verification_email(email)
 
     if not success:
+        security_logger.log_error(
+            "EMAIL_SEND_FAILURE",
+            "Failed to send verification email",
+            user_id=email,
+            details={"ip_address": ip_address}
+        )
         raise HTTPException(status_code=500, detail="發送驗證碼失敗，請檢查 SMTP 設定")
+
+    # 記錄日誌
+    security_logger.log_verification_code_sent(email, ip_address)
 
     return {
         "success": True,
@@ -516,7 +608,9 @@ async def send_verification_email(email: str = Query(..., description="郵件地
 
 
 @app.post("/api/email/verify-code", summary="驗證郵件驗證碼")
+@limiter.limit("10/minute")  # 每分鐘最多 10 次
 async def verify_email_code(
+    request: Request,
     email: str = Query(..., description="郵件地址"),
     code: str = Query(..., description="驗證碼")
 ):
@@ -528,10 +622,65 @@ async def verify_email_code(
 
     返回驗證結果
     """
+    ip_address = get_client_ip(request)
+
+    # 輸入驗證
+    is_valid, error = input_validator.validate_email(email)
+    if not is_valid:
+        security_logger.log_invalid_request(ip_address, "/api/email/verify-code", error)
+        raise HTTPException(status_code=400, detail=error)
+
+    is_valid, error = input_validator.validate_verification_code(code)
+    if not is_valid:
+        security_logger.log_invalid_request(ip_address, "/api/email/verify-code", error)
+        raise HTTPException(status_code=400, detail=error)
+
+    # 檢查黑名單
+    is_blacklisted, remaining = rate_limiter.is_email_blacklisted(email)
+    if is_blacklisted:
+        raise HTTPException(
+            status_code=403,
+            detail=f"郵箱已被臨時封禁，請在 {remaining} 秒後再試"
+        )
+
+    # 驗證驗證碼
     is_valid = email_service.verify_code(email, code)
 
     if not is_valid:
-        raise HTTPException(status_code=400, detail="驗證碼無效或已過期")
+        # 記錄驗證失敗
+        is_banned = rate_limiter.record_verification_failure(email, ip_address)
+
+        security_logger.log_auth_attempt(
+            email,
+            ip_address,
+            success=False,
+            reason="Invalid verification code"
+        )
+
+        if is_banned:
+            security_logger.log_security_event(
+                "VERIFICATION_BRUTEFORCE_DETECTED",
+                ip_address,
+                "warning",
+                f"Multiple verification failures for email: {crypto_utils.mask_email(email)}"
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="驗證失敗次數過多，已被臨時封禁"
+            )
+
+        # 獲取剩餘嘗試次數
+        remaining_attempts = rate_limiter.get_remaining_attempts(email, ip_address)
+        raise HTTPException(
+            status_code=400,
+            detail=f"驗證碼無效或已過期（剩餘嘗試次數：{remaining_attempts}）"
+        )
+
+    # 驗證成功，重置失敗記錄
+    rate_limiter.reset_verification_failures(email, ip_address)
+
+    # 記錄成功日誌
+    security_logger.log_auth_attempt(email, ip_address, success=True)
 
     return {
         "success": True,

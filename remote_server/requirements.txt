@@ -28,3 +28,10 @@ faster-whisper
 numpy
 python-dotenv
 opencc-python-reimplemented
+
+# 安全相關套件（SSDLC 要求）
+cryptography>=41.0.0  # 加密和密碼處理
+slowapi>=0.1.9  # API 速率限制
+email-validator>=2.0.0  # 郵箱驗證
+python-magic-bin>=0.4.14; sys_platform == 'win32'  # Windows 文件類型檢測
+python-magic>=0.4.27; sys_platform != 'win32'  # Linux/Mac 文件類型檢測
