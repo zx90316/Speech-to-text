@@ -11,18 +11,6 @@ import os
 import json
 from datetime import datetime
 
-# 設置 UTF-8 輸出（Windows 相容性）
-if sys.platform == 'win32':
-    try:
-        # 嘗試設置控制台為 UTF-8
-        os.system('chcp 65001 > nul 2>&1')  # nosec B605, B607 - 安全的系統命令，僅設置編碼
-        import io
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-    except Exception:  # nosec B110
-        # 如果設置編碼失敗，繼續執行（使用默認編碼）
-        pass
-
 def print_section(title):
     """列印區段標題"""
     print("\n" + "=" * 70)
@@ -76,14 +64,6 @@ def run_bandit():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     json_report = f"security_reports/bandit_report_{timestamp}.json"
     txt_report = f"security_reports/bandit_report_{timestamp}.txt"
-
-    # JSON 格式報告
-    result_json = run_command(
-        [sys.executable, "-m", "bandit", "-r", ".",
-         "-f", "json", "-o", json_report,
-         "--exclude", "./venv_*,./official_models,./output,./logs,./temp_ocr,./.git"],
-        "Bandit 靜態分析 (JSON 格式)"
-    )
 
     # 文字格式報告
     result_txt = run_command(
