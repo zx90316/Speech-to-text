@@ -340,85 +340,51 @@ class TaskProcessor:
         if os.path.exists(output_path):
             return
 
-        try:
-            # 打開輸入音訊檔案
-            with av.open(input_path) as input_container:
-                input_stream = input_container.streams.audio[0]
-                
-                # 計算開始和結束的時間戳（單位：時間基）
-                time_base = input_stream.time_base
-                start_pts = int(start_time / time_base) if start_time is not None else 0
-                end_pts = int(end_time / time_base) if end_time is not None else None
-                
-                # 如果需要裁切，定位到開始位置
-                if start_time is not None:
-                    input_container.seek(start_pts, stream=input_stream)
-                
-                # 創建輸出容器
-                with av.open(output_path, 'w') as output_container:
-                    # 創建輸出音訊流：16kHz, 單聲道, PCM s16le
-                    output_stream = output_container.add_stream('pcm_s16le', rate=16000)
-                    output_stream.channels = 1
-                    output_stream.layout = 'mono'
-                    
-                    # 創建重採樣器
-                    resampler = av.audio.resampler.AudioResampler(
-                        format='s16',
-                        layout='mono',
-                        rate=16000
-                    )
-                    
-                    # 處理音訊幀
-                    for frame in input_container.decode(input_stream):
-                        # 檢查是否超過結束時間
-                        if end_pts is not None and frame.pts >= end_pts:
-                            break
-                        
-                        # 重採樣並寫入
-                        for resampled_frame in resampler.resample(frame):
-                            for packet in output_stream.encode(resampled_frame):
-                                output_container.mux(packet)
-                    
-                    # 刷新剩餘的幀
-                    for packet in output_stream.encode():
-                        output_container.mux(packet)
-                        
-        except ImportError:
-            # 如果 PyAV 未安裝，回退到 subprocess 方法
-            print("⚠️ PyAV 未安裝，使用 FFmpeg subprocess 方法")
-            self._convert_audio_with_subprocess(input_path, output_path, start_time, end_time)
-        except Exception as e:
-            raise Exception(f"音訊轉換失敗: {str(e)}")
-    
-    def _convert_audio_with_subprocess(self, input_path: str, output_path: str, start_time: Optional[float] = None, end_time: Optional[float] = None):
-        """使用 subprocess 調用 FFmpeg 的備用方法"""
-        command = ["ffmpeg"]
-
-        if start_time is not None:
-            command.extend(["-ss", str(start_time)])
-
-        command.extend(["-i", input_path])
-
-        if end_time is not None:
-            duration = end_time - start_time if start_time is not None else end_time
-            command.extend(["-t", str(duration)])
-
-        command.extend([
-            "-acodec", "pcm_s16le",
-            "-ac", "1",
-            "-ar", "16000",
-            output_path
-        ])
-
-        try:
-            subprocess.run(  # nosec B603 - 備用方法，參數已驗證
-                command,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+        # 打開輸入音訊檔案
+        with av.open(input_path) as input_container:
+            input_stream = input_container.streams.audio[0]
+            
+            # 創建重採樣器：目標格式 16kHz 單聲道 s16
+            resampler = av.audio.resampler.AudioResampler(
+                format='s16',
+                layout='mono',
+                rate=16000
             )
-        except subprocess.CalledProcessError as e:
-            raise Exception(f"音訊轉換失敗: {e.stderr.decode()}")
+            
+            # 如果需要裁切，定位到開始位置
+            if start_time is not None:
+                # 使用秒為單位定位
+                input_container.seek(int(start_time * av.time_base))
+            
+            # 創建輸出容器（WAV 格式）
+            with av.open(output_path, 'w', format='wav') as output_container:
+                # 創建輸出音訊流：16kHz, 單聲道, PCM s16le
+                output_stream = output_container.add_stream('pcm_s16le', rate=16000, layout='mono')
+                
+                current_time = start_time if start_time is not None else 0.0
+                
+                # 處理音訊幀
+                for frame in input_container.decode(input_stream):
+                    # 計算當前幀的時間（秒）
+                    frame_time = float(frame.pts * frame.time_base) if frame.pts is not None else current_time
+                    
+                    # 檢查是否超過結束時間
+                    if end_time is not None and frame_time >= end_time:
+                        break
+                    
+                    # 重採樣
+                    resampled_frames = resampler.resample(frame)
+                    
+                    # 編碼並寫入
+                    for resampled_frame in resampled_frames:
+                        for packet in output_stream.encode(resampled_frame):
+                            output_container.mux(packet)
+                    
+                    current_time = frame_time
+                
+                # 刷新編碼器中的剩餘幀
+                for packet in output_stream.encode():
+                    output_container.mux(packet)
     
     def add_speaker_info_to_text(self, timestamp_texts, ann, confidence_map=None):
         """添加語者資訊到文字"""
