@@ -120,6 +120,11 @@ class TaskProcessor:
     """任務處理器類別"""
 
     def __init__(self):
+        import threading
+
+        # 模型操作鎖 - 防止執行緒競爭
+        self._model_lock = threading.RLock()
+
         self.whisper_model = None
         self.current_model_name = None
         self.diarization_model = None
@@ -134,135 +139,138 @@ class TaskProcessor:
     
     def load_whisper_model(self, model_name: str ,compute_type: str = "default"):
         """載入 Whisper 模型（僅使用本地緩存）"""
-        if self.whisper_model is not None and self.current_model_name == model_name:
-            # 模型已載入且相同，無需重新載入
-            return
-        
-        # 卸載舊模型
-        self.unload_model()
+        with self._model_lock:  # 使用鎖保護模型操作
+            if self.whisper_model is not None and self.current_model_name == model_name:
+                # 模型已載入且相同，無需重新載入
+                return
 
-        # 載入新模型（從本地緩存）
-        print(f"正在載入 Whisper 模型: {model_name} (設備: {self.device}) compute_type: {compute_type}")
+            # 卸載舊模型
+            self.unload_model()
 
-        self.whisper_model = WhisperModel(
-            model_name,
-            device=self.device,
-            compute_type=compute_type,
-            local_files_only=True  # 僅使用本地緩存，避免網路請求
-        )
-        self.current_model_name = model_name
-        print(f"Whisper 模型載入完成: {model_name}")
+            # 載入新模型（從本地緩存）
+            print(f"正在載入 Whisper 模型: {model_name} (設備: {self.device}) compute_type: {compute_type}")
+
+            self.whisper_model = WhisperModel(
+                model_name,
+                device=self.device,
+                compute_type=compute_type,
+                local_files_only=True  # 僅使用本地緩存，避免網路請求
+            )
+            self.current_model_name = model_name
+            print(f"Whisper 模型載入完成: {model_name}")
 
     def load_diarization_model(self):
         """載入語者分離模型"""
-        if self.diarization_loaded:
-            return
+        with self._model_lock:  # 使用鎖保護模型操作
+            if self.diarization_loaded:
+                return
 
-        print("正在載入語者分離模型（從本地緩存）...")
-        diarization_model_id = "pyannote/speaker-diarization-community-1"
-        hf_token = os.getenv("HUGGINGFACE_TOKEN")
-        self.diarization_model = Pipeline.from_pretrained(
-            diarization_model_id,
-            token=hf_token
-        )
-        self.diarization_model.to(torch.device(self.device))
-        print("語者分離模型載入完成")
-        self.diarization_loaded = True
+            print("正在載入語者分離模型（從本地緩存）...")
+            diarization_model_id = "pyannote/speaker-diarization-community-1"
+            hf_token = os.getenv("HUGGINGFACE_TOKEN")
+            self.diarization_model = Pipeline.from_pretrained(
+                diarization_model_id,
+                token=hf_token
+            )
+            self.diarization_model.to(torch.device(self.device))
+            print("語者分離模型載入完成")
+            self.diarization_loaded = True
 
     def unload_model(self):
-        """卸載所有模型以釋放 VRAM（Windows 安全版本）"""
+        """卸載所有模型以釋放 VRAM（Windows 安全版本 + 執行緒安全）"""
         import gc
         import sys
 
-        if not self.diarization_loaded and self.whisper_model is None:
-            return
+        with self._model_lock:  # 使用鎖保護模型操作，防止執行緒競爭
+            if not self.diarization_loaded and self.whisper_model is None:
+                return
 
-        print("正在卸載所有模型以釋放 VRAM...")
+            print("正在卸載所有模型以釋放 VRAM...")
 
-        # 卸載 diarization 模型
-        if self.diarization_model is not None:
-            try:
-                print("  - 卸載語者分離模型...")
-                # 先移到 CPU 避免 CUDA 鎖死
+            # 卸載 diarization 模型
+            if self.diarization_model is not None:
                 try:
-                    self.diarization_model.to(torch.device("cpu"))
-                except:
-                    pass  # 如果已經在 CPU 上就忽略
-
-                if torch.cuda.is_available():
+                    print("  - 卸載語者分離模型...")
+                    # 先移到 CPU 避免 CUDA 鎖死
                     try:
-                        torch.cuda.synchronize()
+                        self.diarization_model.to(torch.device("cpu"))
                     except:
-                        pass  # 忽略同步錯誤
+                        pass  # 如果已經在 CPU 上就忽略
 
-                # 使用 weakref 讓 Python GC 自動處理，避免 fatal error
+                    if torch.cuda.is_available():
+                        try:
+                            torch.cuda.synchronize()
+                        except:
+                            pass  # 忽略同步錯誤
+
+                    # 使用 weakref 讓 Python GC 自動處理，避免 fatal error
+                    try:
+                        del self.diarization_model
+                    except:
+                        pass
+
+                    print("  - 語者分離模型已卸載")
+                except Exception as e:
+                    print(f"  - 卸載語者分離模型時發生錯誤: {e}")
+                finally:
+                    self.diarization_model = None
+
+            # 卸載 Whisper 模型 - Windows 安全方式
+            if self.whisper_model is not None:
                 try:
-                    del self.diarization_model
-                except:
-                    pass
+                    print("  - 準備卸載 Whisper 模型...")
 
-                print("  - 語者分離模型已卸載")
-            except Exception as e:
-                print(f"  - 卸載語者分離模型時發生錯誤: {e}")
-            finally:
-                self.diarization_model = None
+                    # 確保所有 CUDA 操作完成
+                    if torch.cuda.is_available():
+                        try:
+                            torch.cuda.synchronize()
+                            memory_before = torch.cuda.memory_allocated() / 1024**3
+                            print(f"  - 卸載前 GPU 記憶體: {memory_before:.2f} GB")
+                        except:
+                            pass  # 忽略記憶體查詢錯誤
 
-        # 卸載 Whisper 模型 - Windows 安全方式
-        if self.whisper_model is not None:
+                    # 方法1: 直接設為 None，讓 GC 處理（最安全）
+                    # 避免使用 del，因為 CTranslate2 的 C++ 解構函數可能在 Windows 上有問題
+                    self.whisper_model = None
+                    self.current_model_name = None
+
+                    # 立即觸發垃圾回收（多次以確保清理）
+                    gc.collect()
+                    gc.collect()
+                    gc.collect()
+
+                    # 清理 CUDA 緩存
+                    if torch.cuda.is_available():
+                        try:
+                            torch.cuda.empty_cache()
+                            torch.cuda.synchronize()
+                            memory_after = torch.cuda.memory_allocated() / 1024**3
+                            print(f"  - 卸載後 GPU 記憶體: {memory_after:.2f} GB")
+                        except:
+                            pass  # 忽略 CUDA 操作錯誤
+
+                    print("  - Whisper 模型已成功卸載")
+
+                except Exception as e:
+                    print(f"  - 卸載 Whisper 模型時發生錯誤: {type(e).__name__}: {e}")
+                    # 不要 print stack trace，避免觸發更多錯誤
+                finally:
+                    self.whisper_model = None
+                    self.current_model_name = None
+
+            # 最終清理（多次 GC 確保釋放）
             try:
-                print("  - 準備卸載 Whisper 模型...")
-
-                # 確保所有 CUDA 操作完成
+                gc.collect()
+                gc.collect()
                 if torch.cuda.is_available():
-                    try:
-                        torch.cuda.synchronize()
-                        memory_before = torch.cuda.memory_allocated() / 1024**3
-                        print(f"  - 卸載前 GPU 記憶體: {memory_before:.2f} GB")
-                    except:
-                        pass  # 忽略記憶體查詢錯誤
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+            except:
+                pass  # 忽略最終清理錯誤
 
-                # 方法1: 直接設為 None，讓 GC 處理（最安全）
-                # 避免使用 del，因為 CTranslate2 的 C++ 解構函數可能在 Windows 上有問題
-                self.whisper_model = None
-                self.current_model_name = None
-
-                # 立即觸發垃圾回收（多次以確保清理）
-                gc.collect()
-                gc.collect()
-                gc.collect()
-
-                # 清理 CUDA 緩存
-                if torch.cuda.is_available():
-                    try:
-                        torch.cuda.empty_cache()
-                        torch.cuda.synchronize()
-                        memory_after = torch.cuda.memory_allocated() / 1024**3
-                        print(f"  - 卸載後 GPU 記憶體: {memory_after:.2f} GB")
-                    except:
-                        pass  # 忽略 CUDA 操作錯誤
-
-                print("  - Whisper 模型已成功卸載")
-
-            except Exception as e:
-                print(f"  - 卸載 Whisper 模型時發生錯誤: {type(e).__name__}: {e}")
-                # 不要 print stack trace，避免觸發更多錯誤
-            finally:
-                self.whisper_model = None
-                self.current_model_name = None
-
-        # 最終清理（多次 GC 確保釋放）
-        try:
-            gc.collect()
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-        except:
-            pass  # 忽略最終清理錯誤
-
-        self.diarization_loaded = False
-        print("所有模型已卸載")
-        sys.stdout.flush()
+            self.diarization_loaded = False
+            print("所有模型已卸載")
+            sys.stdout.flush()
     
     def unload_diarization_model(self):
         """只卸載語者分離模型以釋放 VRAM（保留 Whisper 模型）"""

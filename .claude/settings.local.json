@@ -14,7 +14,8 @@
       "Bash(nul)",
       "Bash(findstr:*)",
       "Bash(dir:*)",
-      "Bash(.venv/Scripts/python.exe:*)"
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(.venvScriptspython.exe -c \"import docx; print(''python-docx installed'')\")"
     ],
     "deny": [],
     "ask": []
