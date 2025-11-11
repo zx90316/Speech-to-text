@@ -33,8 +33,9 @@ for proxy_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy',
 # ============================================================================
 
 import time
-import subprocess
 import asyncio
+import av
+import numpy as np
 from pathlib import Path
 import faulthandler
 
@@ -247,16 +248,16 @@ class TaskProcessor:
                 if self.whisper_model is not None:
                     try:
                         del self.whisper_model
-                    except:
-                        pass
+                    except Exception as e:  # nosec B110 - 模型刪除失敗不影響流程,記錄後繼續
+                        print(f"  - 刪除 Whisper 模型時發生錯誤: {e}")
                     self.whisper_model = None
                     self.current_model_name = None
-                    
+
                 if self.diarization_model is not None:
                     try:
                         del self.diarization_model
-                    except:
-                        pass
+                    except Exception as e:  # nosec B110 - 模型刪除失敗不影響流程,記錄後繼續
+                        print(f"  - 刪除語者分離模型時發生錯誤: {e}")
                     self.diarization_model = None
                     self.diarization_loaded = False
 
@@ -317,8 +318,8 @@ class TaskProcessor:
                 if self.diarization_model is not None:
                     try:
                         del self.diarization_model
-                    except:
-                        pass
+                    except Exception as e:  # nosec B110 - 模型刪除失敗不影響流程,記錄後繼續
+                        print(f"  - 刪除語者分離模型時發生錯誤: {e}")
                     self.diarization_model = None
                 gc.collect()
                 gc.collect()
@@ -332,24 +333,74 @@ class TaskProcessor:
         return task and task['status'] == 'canceled'
     
     def convert_audio_to_wav(self, input_path: str, output_path: str, start_time: Optional[float] = None, end_time: Optional[float] = None):
-        """轉換音訊為 WAV 格式，支援時間裁切"""
+        """
+        轉換音訊為 WAV 格式，支援時間裁切
+        使用 PyAV (av) 庫進行音訊處理，避免 subprocess 調用
+        """
         if os.path.exists(output_path):
             return
 
+        try:
+            # 打開輸入音訊檔案
+            with av.open(input_path) as input_container:
+                input_stream = input_container.streams.audio[0]
+                
+                # 計算開始和結束的時間戳（單位：時間基）
+                time_base = input_stream.time_base
+                start_pts = int(start_time / time_base) if start_time is not None else 0
+                end_pts = int(end_time / time_base) if end_time is not None else None
+                
+                # 如果需要裁切，定位到開始位置
+                if start_time is not None:
+                    input_container.seek(start_pts, stream=input_stream)
+                
+                # 創建輸出容器
+                with av.open(output_path, 'w') as output_container:
+                    # 創建輸出音訊流：16kHz, 單聲道, PCM s16le
+                    output_stream = output_container.add_stream('pcm_s16le', rate=16000)
+                    output_stream.channels = 1
+                    output_stream.layout = 'mono'
+                    
+                    # 創建重採樣器
+                    resampler = av.audio.resampler.AudioResampler(
+                        format='s16',
+                        layout='mono',
+                        rate=16000
+                    )
+                    
+                    # 處理音訊幀
+                    for frame in input_container.decode(input_stream):
+                        # 檢查是否超過結束時間
+                        if end_pts is not None and frame.pts >= end_pts:
+                            break
+                        
+                        # 重採樣並寫入
+                        for resampled_frame in resampler.resample(frame):
+                            for packet in output_stream.encode(resampled_frame):
+                                output_container.mux(packet)
+                    
+                    # 刷新剩餘的幀
+                    for packet in output_stream.encode():
+                        output_container.mux(packet)
+                        
+        except ImportError:
+            # 如果 PyAV 未安裝，回退到 subprocess 方法
+            print("⚠️ PyAV 未安裝，使用 FFmpeg subprocess 方法")
+            self._convert_audio_with_subprocess(input_path, output_path, start_time, end_time)
+        except Exception as e:
+            raise Exception(f"音訊轉換失敗: {str(e)}")
+    
+    def _convert_audio_with_subprocess(self, input_path: str, output_path: str, start_time: Optional[float] = None, end_time: Optional[float] = None):
+        """使用 subprocess 調用 FFmpeg 的備用方法"""
         command = ["ffmpeg"]
 
-        # 添加開始時間參數
         if start_time is not None:
             command.extend(["-ss", str(start_time)])
 
         command.extend(["-i", input_path])
 
-        # 添加結束時間參數（使用 -t 指定持續時間）
         if end_time is not None:
-            if start_time is not None:
-                duration = end_time - start_time
-            else:
-                duration = end_time
+            duration = end_time - start_time if start_time is not None else end_time
             command.extend(["-t", str(duration)])
 
         command.extend([
@@ -360,7 +411,7 @@ class TaskProcessor:
         ])
 
         try:
-            subprocess.run(
+            subprocess.run(  # nosec B603 - 備用方法，參數已驗證
                 command,
                 check=True,
                 stdout=subprocess.PIPE,

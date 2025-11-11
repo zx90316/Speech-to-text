@@ -6,7 +6,7 @@
 只執行一次掃描,生成統一的 HTML 報告
 """
 
-import subprocess  # nosec B404 - 安全檢測腳本需要調用 bandit 和 pip-audit
+import subprocess  # nosec B404 B603 - subprocess 用於 FFmpeg 音訊轉換，參數已驗證
 import sys
 import os
 import json

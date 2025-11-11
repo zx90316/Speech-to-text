@@ -1045,8 +1045,10 @@ if __name__ == "__main__":
                     if self._sock is not None:
                         try:
                             self._sock.close()
-                        except Exception:
-                            pass
+                        except Exception as e:  # nosec B110 - Socket 清理時的異常應被忽略，但記錄到日誌
+                            # 記錄到日誌供調試（不影響正常流程）
+                            import logging
+                            logging.getLogger("asyncio").debug(f"Socket cleanup exception (ignored): {e}")
                     self._sock = None
 
             # 替換原有方法
@@ -1057,10 +1059,15 @@ if __name__ == "__main__":
             pass
 
     # 生產環境建議配置
+    # 允許通過環境變數配置綁定地址（安全性考量）
+    # 開發環境: 0.0.0.0（允許外部訪問）
+    # 生產環境: 127.0.0.1（僅允許本機訪問，搭配 Nginx 反向代理）
+    host = os.getenv("API_HOST", "127.0.0.1")  # nosec B104 - 預設使用 127.0.0.1，可透過環境變數覆蓋
+
     uvicorn_config = {
         "app": "api:app",
-        "host": "0.0.0.0",
-        "port": 8100,
+        "host": host,
+        "port": int(os.getenv("API_PORT", "8100")),
         "reload": False,
         "log_level": "info",
         "workers": int(os.getenv("UVICORN_WORKERS", "1")),  # 多 worker 支援（注意：記憶體儲存在多 worker 下不共享）

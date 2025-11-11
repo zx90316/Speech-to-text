@@ -334,8 +334,8 @@ class CryptoUtils:
             # 如果安全刪除失敗，至少要正常刪除
             try:
                 os.remove(file_path)
-            except:
-                pass
+            except Exception as remove_error:  # nosec B110 - 記錄刪除失敗但不拋出異常，避免中斷流程
+                print(f"警告：無法刪除文件 {file_path}: {remove_error}")
 
 crypto_utils = CryptoUtils()
     
