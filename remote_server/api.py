@@ -204,10 +204,19 @@ async def process_queue():
             )
 
         except Exception as e:
-            print(f"處理任務 {task_id} 時發生錯誤: {e}")
-            import traceback
-            traceback.print_exc()
-            memory_manager.update_task_status(task_id, 'failed', error_message=str(e))
+            # 記錄錯誤但不顯示完整 traceback（符合 SSDLC 5.3.3）
+            error_msg = f"任務處理失敗 (錯誤代碼: {task_id[:8]})"
+            print(f"任務 {task_id} 處理失敗: {type(e).__name__}")
+
+            # 記錄詳細錯誤到日誌文件（僅供內部調試）
+            security_logger.log_error(
+                "TASK_PROCESSING_ERROR",
+                str(e),
+                user_id=task.get('email', 'unknown') if task else 'unknown',
+                details={"task_id": task_id, "error_type": type(e).__name__}
+            )
+
+            memory_manager.update_task_status(task_id, 'failed', error_message=error_msg)
 
         finally:
             task_queue.task_done()
@@ -691,7 +700,7 @@ async def get_stats():
 # ==================== 郵件驗證 API ====================
 
 @app.post("/api/email/send-verification", summary="發送郵件驗證碼")
-@limiter.limit("60/hour")  # 每小時最多 5 次
+@limiter.limit("5/hour")  # 每小時最多 5 次
 async def send_verification_email(
     request: Request,
     email: str = Query(..., description="郵件地址")

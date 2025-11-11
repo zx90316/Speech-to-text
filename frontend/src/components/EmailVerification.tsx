@@ -136,22 +136,24 @@ export function EmailVerification({ onVerified, initialEmail = '' }: EmailVerifi
             <label htmlFor="code">驗證碼（6位數字）</label>
             <input
               id="code"
-              type="text"
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
               value={verificationCode}
               onChange={(e) => {
                 const newCode = e.target.value.replace(/\D/g, '').slice(0, 6);
                 setVerificationCode(newCode);
-                
+
                 // 當輸入滿 6 個字且不在 loading 狀態時，自動提交驗證
                 if (newCode.length === 6 && !loading) {
                   handleVerifyCode(newCode);
                 }
               }}
-              placeholder="000000"
+              placeholder="••••••"
               disabled={loading}
               className="code-input"
               maxLength={6}
-              autoComplete="off"
+              autoComplete="one-time-code"
             />
           </div>
 
