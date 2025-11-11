@@ -12,6 +12,7 @@ API 整合測試
 
 或使用環境變數指定 API URL：
    API_BASE_URL=http://localhost:8000 pytest tests/test_api_integration.py -v
+   API_BASE_URL=https://localhost:8100 pytest tests/test_api_integration.py -v
 """
 import pytest
 import requests
@@ -19,9 +20,40 @@ import time
 import os
 from pathlib import Path
 import tempfile
+import warnings
+
+# 禁用 SSL 警告（僅用於開發環境）
+warnings.filterwarnings('ignore', message='Unverified HTTPS request')
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # API 基礎 URL（可通過環境變數覆蓋）
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+
+# SSL 驗證設置（開發環境中禁用以支持自簽名證書）
+VERIFY_SSL = os.getenv("VERIFY_SSL", "false").lower() == "true"
+
+
+def api_request(method, url, **kwargs):
+    """
+    統一的 API 請求函數，自動處理 SSL 驗證
+    
+    Args:
+        method: HTTP 方法（'get', 'post', 'options' 等）
+        url: 請求 URL
+        **kwargs: 其他 requests 參數
+    
+    Returns:
+        requests.Response
+    """
+    if 'verify' not in kwargs:
+        kwargs['verify'] = VERIFY_SSL
+    
+    if 'timeout' not in kwargs:
+        kwargs['timeout'] = 30  # 默認 30 秒超時
+    
+    func = getattr(requests, method.lower())
+    return func(url, **kwargs)
 
 # 測試用的音訊文件路徑
 TEST_AUDIO_DIR = Path(__file__).parent.parent / "範例.mp3"
@@ -30,9 +62,10 @@ TEST_AUDIO_DIR = Path(__file__).parent.parent / "範例.mp3"
 def is_api_running():
     """檢查 API 是否運行"""
     try:
-        response = requests.get(f"{API_BASE_URL}/health", timeout=2)
+        response = api_request('get', f"{API_BASE_URL}/health", timeout=10)
         return response.status_code == 200
-    except Exception:
+    except Exception as e:
+        print(f"API 連接失敗: {e}")
         return False
 
 
@@ -53,7 +86,8 @@ def test_email():
 def verified_email(test_email):
     """已驗證的郵箱"""
     # 發送驗證碼
-    response = requests.post(
+    response = api_request(
+        'post',
         f"{API_BASE_URL}/send-verification-code",
         json={"email": test_email}
     )
@@ -100,7 +134,7 @@ class TestAPIIntegration:
 
     def test_health_check(self):
         """測試健康檢查端點"""
-        response = requests.get(f"{API_BASE_URL}/health")
+        response = api_request('get', f"{API_BASE_URL}/health")
         
         assert response.status_code == 200
         data = response.json()
@@ -110,7 +144,8 @@ class TestAPIIntegration:
 
     def test_send_verification_code(self, test_email):
         """測試發送驗證碼"""
-        response = requests.post(
+        response = api_request(
+            'post',
             f"{API_BASE_URL}/send-verification-code",
             json={"email": test_email}
         )
@@ -123,7 +158,8 @@ class TestAPIIntegration:
 
     def test_send_verification_code_invalid_email(self):
         """測試無效郵箱"""
-        response = requests.post(
+        response = api_request(
+            'post',
             f"{API_BASE_URL}/send-verification-code",
             json={"email": "invalid_email"}
         )
@@ -133,7 +169,8 @@ class TestAPIIntegration:
 
     def test_verify_code_without_sending(self):
         """測試未發送驗證碼就驗證"""
-        response = requests.post(
+        response = api_request(
+            'post',
             f"{API_BASE_URL}/verify-code",
             json={
                 "email": "nonexistent@example.com",
@@ -156,7 +193,8 @@ class TestAPIIntegration:
                 'enable_diarization': 'false'
             }
             
-            response = requests.post(
+            response = api_request(
+                'post',
                 f"{API_BASE_URL}/upload",
                 files=files,
                 data=data
@@ -173,7 +211,8 @@ class TestAPIIntegration:
         # 快速發送多個請求
         responses = []
         for i in range(10):
-            response = requests.post(
+            response = api_request(
+                'post',
                 f"{API_BASE_URL}/send-verification-code",
                 json={"email": f"{test_email}_{i}@example.com"}
             )
@@ -189,7 +228,8 @@ class TestAPIIntegration:
 
     def test_cors_headers(self):
         """測試 CORS 標頭"""
-        response = requests.options(
+        response = api_request(
+            'options',
             f"{API_BASE_URL}/health",
             headers={
                 "Origin": "http://localhost:3000",
@@ -203,7 +243,7 @@ class TestAPIIntegration:
 
     def test_invalid_endpoint(self):
         """測試不存在的端點"""
-        response = requests.get(f"{API_BASE_URL}/nonexistent")
+        response = api_request('get', f"{API_BASE_URL}/nonexistent")
         
         assert response.status_code == 404
         print(f"\n✅ 正確返回 404")
@@ -219,7 +259,8 @@ class TestAPIWorkflow:
     def test_complete_workflow(self, test_email, sample_audio_file):
         """測試完整的工作流程"""
         # 1. 發送驗證碼
-        response = requests.post(
+        response = api_request(
+            'post',
             f"{API_BASE_URL}/send-verification-code",
             json={"email": test_email}
         )
@@ -230,7 +271,8 @@ class TestAPIWorkflow:
         # 在實際測試中，您需要從郵件或日誌中獲取驗證碼
         verification_code = input("請輸入驗證碼: ")
         
-        response = requests.post(
+        response = api_request(
+            'post',
             f"{API_BASE_URL}/verify-code",
             json={
                 "email": test_email,
@@ -250,7 +292,8 @@ class TestAPIWorkflow:
                 'enable_diarization': 'false'
             }
             
-            response = requests.post(
+            response = api_request(
+                'post',
                 f"{API_BASE_URL}/upload",
                 files=files,
                 data=data
@@ -266,7 +309,7 @@ class TestAPIWorkflow:
         start_time = time.time()
         
         while time.time() - start_time < max_wait:
-            response = requests.get(f"{API_BASE_URL}/task/{task_id}")
+            response = api_request('get', f"{API_BASE_URL}/task/{task_id}")
             assert response.status_code == 200
             
             task_status = response.json()
@@ -279,7 +322,7 @@ class TestAPIWorkflow:
                 print(f"步驟 4: ✅ 任務完成")
                 
                 # 5. 獲取結果
-                response = requests.get(f"{API_BASE_URL}/result/{task_id}")
+                response = api_request('get', f"{API_BASE_URL}/result/{task_id}")
                 assert response.status_code == 200
                 
                 result = response.json()
@@ -307,7 +350,8 @@ class TestAPISecurity:
         """測試 SQL 注入防護"""
         malicious_email = "test' OR '1'='1"
         
-        response = requests.post(
+        response = api_request(
+            'post',
             f"{API_BASE_URL}/send-verification-code",
             json={"email": malicious_email}
         )
@@ -319,7 +363,8 @@ class TestAPISecurity:
         """測試 XSS 防護"""
         malicious_email = "<script>alert('xss')</script>@example.com"
         
-        response = requests.post(
+        response = api_request(
+            'post',
             f"{API_BASE_URL}/send-verification-code",
             json={"email": malicious_email}
         )
@@ -337,7 +382,8 @@ class TestAPISecurity:
         """測試大型請求防護"""
         large_email = "a" * 10000 + "@example.com"
         
-        response = requests.post(
+        response = api_request(
+            'post',
             f"{API_BASE_URL}/send-verification-code",
             json={"email": large_email}
         )
@@ -350,7 +396,7 @@ class TestAPISecurity:
 def print_api_info():
     """打印 API 信息"""
     try:
-        response = requests.get(f"{API_BASE_URL}/health", timeout=2)
+        response = api_request('get', f"{API_BASE_URL}/health", timeout=10)
         if response.status_code == 200:
             print(f"\n{'='*60}")
             print(f"API 服務信息")
@@ -369,6 +415,8 @@ def print_api_info():
         print(f"\n請先啟動 API 服務：")
         print(f"  cd remote_server")
         print(f"  python -m uvicorn api:app --reload --port 8000")
+        print(f"\n或設置正確的 API_BASE_URL 環境變數：")
+        print(f"  $env:API_BASE_URL='https://localhost:8100'")
         print(f"{'='*60}\n")
         return False
 
