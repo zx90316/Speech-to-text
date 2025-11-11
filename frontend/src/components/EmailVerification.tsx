@@ -35,13 +35,18 @@ export function EmailVerification({ onVerified, initialEmail = '' }: EmailVerifi
     }
   };
 
-  const handleVerifyCode = async () => {
+  const handleVerifyCode = async (codeOrEvent?: string | React.MouseEvent) => {
+    // 判斷參數是字符串還是事件對象
+    const codeToVerify = typeof codeOrEvent === 'string' ? codeOrEvent : verificationCode;
+    
+    if (codeToVerify.length !== 6) return;
+    
     setError(null);
     setSuccess(null);
     setLoading(true);
 
     try {
-      const response = await api.verifyEmailCode(email, verificationCode);
+      const response = await api.verifyEmailCode(email, codeToVerify);
       setSuccess(response.message);
       setTimeout(() => {
         onVerified(email);
@@ -133,11 +138,20 @@ export function EmailVerification({ onVerified, initialEmail = '' }: EmailVerifi
               id="code"
               type="text"
               value={verificationCode}
-              onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onChange={(e) => {
+                const newCode = e.target.value.replace(/\D/g, '').slice(0, 6);
+                setVerificationCode(newCode);
+                
+                // 當輸入滿 6 個字且不在 loading 狀態時，自動提交驗證
+                if (newCode.length === 6 && !loading) {
+                  handleVerifyCode(newCode);
+                }
+              }}
               placeholder="000000"
               disabled={loading}
               className="code-input"
               maxLength={6}
+              autoComplete="off"
             />
           </div>
 

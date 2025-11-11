@@ -869,8 +869,9 @@ if __name__ == "__main__":
         "log_level": "info",
         "workers": int(os.getenv("UVICORN_WORKERS", "1")),  # 多 worker 支援（注意：記憶體儲存在多 worker 下不共享）
         "timeout_keep_alive": 75,
-        "limit_concurrency": 100,
+        "limit_concurrency": 1000,  # 提高並發限制（從 100 → 1000）
         "limit_max_requests": 10000,  # 每個 worker 處理 10000 個請求後重啟（防止記憶體洩漏）
+        "backlog": 2048,  # 增加連線積壓佇列（預設 2048）
     }
 
     # 如果啟用 HTTPS 且憑證檔案存在，則添加 SSL 配置

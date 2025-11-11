@@ -1,7 +1,7 @@
 /**
  * 任務歷史組件
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { History, RefreshCw, Clock, CheckCircle2, XCircle, Loader2, Trash2, Lock } from 'lucide-react';
 import { api } from '../api';
 import { getStoredTaskIds, removeTaskId } from '../utils/taskStorage';
@@ -17,9 +17,18 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [verifiedEmail, setVerifiedEmail] = useState<string | null>(getVerifiedEmail());
+  const loadingRef = useRef(false); // 防止重複加載
 
   const loadTasks = async (email: string) => {
+    // 防止重複請求
+    if (loadingRef.current) {
+      console.log('[TaskHistory] 跳過重複請求');
+      return;
+    }
+
+    loadingRef.current = true;
     setLoading(true);
+
     try {
       // 1. 從 localStorage 獲取任務
       const storedIds = getStoredTaskIds();
@@ -54,10 +63,16 @@ export function TaskHistory({ onSelectTask, refreshTrigger }: TaskHistoryProps) 
       );
 
       setTasks(mergedTasks);
-    } catch (error) {
-      console.error('載入任務歷史失敗:', error);
+    } catch (error: any) {
+      // 503 錯誤特別處理（服務過載）
+      if (error.response?.status === 503) {
+        console.warn('[TaskHistory] 服務暫時過載，請稍後再試');
+      } else {
+        console.error('[TaskHistory] 載入任務歷史失敗:', error);
+      }
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   };
 
