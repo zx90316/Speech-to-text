@@ -117,10 +117,52 @@ processing = False
 
 
 def get_client_ip(request: Request) -> str:
-    """獲取客戶端 IP 地址"""
-    forwarded = request.headers.get("X-Forwarded-For")
+    """
+    獲取客戶端真實 IP 地址
+    支援多種反向代理標頭（Nginx, Apache, Cloudflare 等）
+    """
+    # 1. X-Forwarded-For (最常見，RFC 7239 標準)
+    # 格式: X-Forwarded-For: client, proxy1, proxy2
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        # 取第一個 IP（客戶端真實 IP）
+        return forwarded_for.split(",")[0].strip()
+
+    # 2. X-Real-IP (Nginx 常用)
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
+
+    # 3. CF-Connecting-IP (Cloudflare)
+    cf_ip = request.headers.get("CF-Connecting-IP")
+    if cf_ip:
+        return cf_ip.strip()
+
+    # 4. True-Client-IP (Akamai, Cloudflare Enterprise)
+    true_client_ip = request.headers.get("True-Client-IP")
+    if true_client_ip:
+        return true_client_ip.strip()
+
+    # 5. X-Client-IP (某些代理)
+    x_client_ip = request.headers.get("X-Client-IP")
+    if x_client_ip:
+        return x_client_ip.strip()
+
+    # 6. Forwarded (RFC 7239 標準格式)
+    # 格式: Forwarded: for=192.0.2.60;proto=http;by=203.0.113.43
+    forwarded = request.headers.get("Forwarded")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        # 解析 for= 參數
+        import re
+        match = re.search(r'for=([^;,\s]+)', forwarded)
+        if match:
+            ip = match.group(1).strip('"')
+            # 移除端口號（如果有）
+            if ':' in ip and not ip.startswith('['):
+                ip = ip.split(':')[0]
+            return ip
+
+    # 7. 最後回退到直接連接的客戶端地址
     return request.client.host if request.client else "unknown"
 
 
@@ -191,6 +233,39 @@ async def health_check():
         "status": "healthy",
         "queue_size": task_queue.qsize(),
         "processing": processing
+    }
+
+
+@app.get("/debug/ip")
+async def debug_ip(request: Request):
+    """調試端點：顯示客戶端 IP 和所有相關標頭"""
+    headers = dict(request.headers)
+
+    # 獲取所有可能的 IP 標頭
+    ip_headers = {
+        "X-Forwarded-For": headers.get("x-forwarded-for"),
+        "X-Real-IP": headers.get("x-real-ip"),
+        "CF-Connecting-IP": headers.get("cf-connecting-ip"),
+        "True-Client-IP": headers.get("true-client-ip"),
+        "X-Client-IP": headers.get("x-client-ip"),
+        "Forwarded": headers.get("forwarded"),
+    }
+
+    # 當前函數識別的 IP
+    detected_ip = get_client_ip(request)
+
+    return {
+        "detected_ip": detected_ip,
+        "request_client_host": request.client.host if request.client else None,
+        "request_client_port": request.client.port if request.client else None,
+        "ip_headers": ip_headers,
+        "all_headers": headers,
+        "notes": {
+            "detected_ip": "這是 get_client_ip() 函數識別的 IP",
+            "request_client_host": "直接連接的客戶端地址（可能是代理）",
+            "ip_headers": "所有可能包含真實 IP 的標頭",
+            "solution": "如果 detected_ip 是 127.0.0.1 但您從外部訪問，請檢查前端代理是否正確設置了 IP 標頭"
+        }
     }
 
 
@@ -285,6 +360,37 @@ async def create_task(
     content = await file.read()
     with open(upload_path, 'wb') as f:
         f.write(content)
+
+    # 記錄文件上傳日誌
+    ip_address = get_client_ip(request)
+    file_ext = Path(file.filename).suffix.lower()
+    security_logger.log_file_upload(
+        email=email,
+        ip_address=ip_address,
+        filename=file.filename,
+        file_size=len(content),
+        file_type=file_ext
+    )
+
+    # 記錄任務創建日誌
+    security_logger.log_task_created(
+        task_id=task_id,
+        email=email,
+        ip_address=ip_address,
+        filename=file.filename,
+        parameters={
+            'enable_diarization': enable_diarization,
+            'start_time': start_time,
+            'end_time': end_time,
+            'language': language,
+            'task': task,
+            'model': model,
+            'enable_confidence_score': enable_confidence_score,
+            'compute_type': compute_type,
+            'enable_llm_correction': enable_llm_correction,
+            'llm_model': llm_model
+        }
+    )
 
     # 加入處理佇列
     await task_queue.put(task_id)
@@ -425,7 +531,11 @@ async def stream_task_progress(request: Request, task_id: str):
 
 
 @app.delete("/api/tasks/{task_id}", summary="取消任務")
-async def cancel_task(task_id: str, permanent: bool = Query(False, description="是否永久刪除任務及其檔案")):
+async def cancel_task(
+    request: Request,
+    task_id: str,
+    permanent: bool = Query(False, description="是否永久刪除任務及其檔案")
+):
     """
     取消正在進行或排隊中的任務
 
@@ -440,11 +550,23 @@ async def cancel_task(task_id: str, permanent: bool = Query(False, description="
 
     # 如果是永久刪除
     if permanent:
+        # 獲取完整任務資訊（包含 email）
+        full_task = memory_manager.get_task_full(task_id)
+
         # 清理任務檔案
         memory_manager.cleanup_task_files(task_id)
 
         # 從記憶體刪除記錄
         memory_manager.delete_task(task_id)
+
+        # 記錄數據刪除日誌（GDPR 合規）
+        if full_task:
+            security_logger.log_data_deletion(
+                task_id=task_id,
+                email=full_task.get('email', 'unknown'),
+                reason="User requested permanent deletion",
+                data_type="task_data_and_files"
+            )
 
         return {
             "task_id": task_id,
@@ -469,6 +591,7 @@ async def cancel_task(task_id: str, permanent: bool = Query(False, description="
 
 @app.get("/api/my-tasks", summary="查詢我的任務歷史")
 async def get_my_tasks(
+    request: Request,
     email: str = Query(..., description="已驗證的電子郵件"),
     limit: int = Query(50, ge=1, le=100, description="返回的任務數量上限")
 ):
@@ -484,6 +607,15 @@ async def get_my_tasks(
             status_code=403,
             detail="郵箱未驗證，請先完成驗證"
         )
+
+    # 記錄個資訪問日誌（GDPR 合規）
+    ip_address = get_client_ip(request)
+    security_logger.log_personal_data_access(
+        email=email,
+        ip_address=ip_address,
+        action="query_my_tasks",
+        data_type="task_history"
+    )
 
     tasks = memory_manager.get_tasks_by_email(email, limit=limit)
 
@@ -721,7 +853,8 @@ def verify_admin_token(token: str = Query(..., description="管理者 Token")):
 
 @app.get("/api/admin/tasks", summary="管理者 - 獲取所有任務")
 async def admin_get_all_tasks(
-    _: bool = Depends(verify_admin_token),
+    request: Request,
+    token: str = Query(..., description="管理者 Token"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0)
 ):
@@ -729,6 +862,18 @@ async def admin_get_all_tasks(
     管理者：獲取所有任務（僅佇列資訊，不含任務內容）
     需要提供有效的 admin_token
     """
+    # 驗證 admin token
+    verify_admin_token(token)
+
+    # 記錄管理員操作
+    ip_address = get_client_ip(request)
+    security_logger.log_admin_action(
+        admin_token=token,
+        ip_address=ip_address,
+        action="view_all_tasks",
+        target=f"limit={limit},offset={offset}"
+    )
+
     tasks = memory_manager.get_all_tasks_summary(limit=limit, offset=offset)
     total = memory_manager.get_total_tasks_count()
 
@@ -741,10 +886,25 @@ async def admin_get_all_tasks(
 
 
 @app.get("/api/admin/stats", summary="管理者 - 系統統計")
-async def admin_get_stats(_: bool = Depends(verify_admin_token)):
+async def admin_get_stats(
+    request: Request,
+    token: str = Query(..., description="管理者 Token")
+):
     """
     管理者：獲取詳細的系統統計資訊
     """
+    # 驗證 admin token
+    verify_admin_token(token)
+
+    # 記錄管理員操作
+    ip_address = get_client_ip(request)
+    security_logger.log_admin_action(
+        admin_token=token,
+        ip_address=ip_address,
+        action="view_system_stats",
+        target="system_statistics"
+    )
+
     stats = memory_manager.get_stats_summary()
     queue_size = task_queue.qsize()
     processing_count = memory_manager.get_processing_count()
@@ -759,12 +919,26 @@ async def admin_get_stats(_: bool = Depends(verify_admin_token)):
 
 @app.post("/api/admin/tasks/batch-delete", summary="管理者 - 批量刪除任務")
 async def admin_batch_delete_tasks(
-    _: bool = Depends(verify_admin_token),
+    request: Request,
+    token: str = Query(..., description="管理者 Token"),
     task_ids: List[str] = Query(..., description="要刪除的任務 ID 列表")
 ):
     """
     管理者：批量刪除任務及其相關檔案
     """
+    # 驗證 admin token
+    verify_admin_token(token)
+
+    # 記錄管理員操作
+    ip_address = get_client_ip(request)
+    security_logger.log_admin_action(
+        admin_token=token,
+        ip_address=ip_address,
+        action="batch_delete_tasks",
+        target=f"{len(task_ids)} tasks",
+        details={"task_ids": task_ids}
+    )
+
     deleted_count = 0
     for task_id in task_ids:
         # 清理任務檔案
@@ -782,12 +956,25 @@ async def admin_batch_delete_tasks(
 
 @app.post("/api/admin/cleanup", summary="管理者 - 清理舊任務")
 async def admin_cleanup_old_tasks(
-    _: bool = Depends(verify_admin_token),
+    request: Request,
+    token: str = Query(..., description="管理者 Token"),
     keep_count: int = Query(100, ge=10, description="保留最近的 N 個已完成任務")
 ):
     """
     管理者：清理舊的已完成任務，保留最近的 N 個
     """
+    # 驗證 admin token
+    verify_admin_token(token)
+
+    # 記錄管理員操作
+    ip_address = get_client_ip(request)
+    security_logger.log_admin_action(
+        admin_token=token,
+        ip_address=ip_address,
+        action="cleanup_old_tasks",
+        target=f"keep_count={keep_count}"
+    )
+
     deleted_count = memory_manager.cleanup_old_completed_tasks(keep_count=keep_count)
 
     return {

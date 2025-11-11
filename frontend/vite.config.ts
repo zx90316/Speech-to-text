@@ -39,6 +39,36 @@ export default defineConfig({
             console.log('proxy error', err);
           });
           proxy.on('proxyReq', (proxyReq, req, _res) => {
+            // ===== 重要：轉發客戶端真實 IP =====
+            // 獲取客戶端 IP（支援多層代理）
+            const clientIp =
+              // 1. 檢查是否已有 X-Forwarded-For（來自上層代理）
+              req.headers['x-forwarded-for'] ||
+              // 2. 檢查 X-Real-IP
+              req.headers['x-real-ip'] ||
+              // 3. 使用直接連接的 IP
+              req.socket.remoteAddress ||
+              req.connection.remoteAddress ||
+              'unknown';
+
+            // 設置 X-Forwarded-For 標頭
+            if (typeof clientIp === 'string') {
+              // 如果已有 X-Forwarded-For，追加當前 IP
+              const existingForwarded = req.headers['x-forwarded-for'];
+              if (existingForwarded) {
+                proxyReq.setHeader('X-Forwarded-For', existingForwarded);
+              } else {
+                proxyReq.setHeader('X-Forwarded-For', clientIp);
+              }
+
+              // 設置 X-Real-IP（Nginx 風格）
+              proxyReq.setHeader('X-Real-IP', clientIp.split(',')[0].trim());
+            }
+
+            // 設置其他轉發標頭
+            proxyReq.setHeader('X-Forwarded-Proto', req.socket.encrypted ? 'https' : 'http');
+            proxyReq.setHeader('X-Forwarded-Host', req.headers.host || 'localhost:5173');
+
             // SSE 請求需要特殊處理
             if (req.url?.includes('/stream')) {
               proxyReq.setHeader('Connection', 'keep-alive');

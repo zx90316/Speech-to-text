@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from collections import OrderedDict
+from security_logger import security_logger
 
 
 class MemoryTaskManager:
@@ -133,6 +134,12 @@ class MemoryTaskManager:
                 result_path = Path(task['result_path'])
                 if result_path.exists():
                     shutil.rmtree(result_path, ignore_errors=True)
+
+                # 記錄文件刪除日誌
+                security_logger.log_file_deleted(
+                    task_id=task_id,
+                    reason=f"Task {task['status']} - automatic cleanup"
+                )
 
                 return True
             except Exception as e:

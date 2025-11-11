@@ -64,6 +64,7 @@ from pyannote.audio.pipelines.utils.hook import ProgressHook
 from memory_storage import memory_manager
 from email_service import email_service
 from ollama_service import ollama_service
+from security_logger import security_logger
 
 # 載入環境變數
 load_dotenv()
@@ -1235,11 +1236,31 @@ class TaskProcessor:
 
                     if email_success:
                         print(f"✅ 任務 {task_id} 完成，結果已發送至 {task['email']}")
+                        # 記錄任務完成日誌
+                        security_logger.log_task_completed(
+                            task_id=task_id,
+                            email=task['email'],
+                            success=True
+                        )
                     else:
                         print(f"⚠️ 任務 {task_id} 完成，但郵件發送失敗")
+                        # 記錄任務完成但郵件失敗的日誌
+                        security_logger.log_task_completed(
+                            task_id=task_id,
+                            email=task['email'],
+                            success=False,
+                            error="Email delivery failed"
+                        )
 
                 except Exception as email_error:
                     print(f"⚠️ 發送郵件時發生錯誤: {email_error}")
+                    # 記錄郵件發送錯誤
+                    security_logger.log_task_completed(
+                        task_id=task_id,
+                        email=task['email'],
+                        success=False,
+                        error=str(email_error)
+                    )
 
                 # 無論郵件是否成功，都清理臨時檔案
                 try:
@@ -1256,6 +1277,16 @@ class TaskProcessor:
                 'failed',
                 error_message=error_msg
             )
+
+            # 記錄任務失敗日誌
+            task = memory_manager.get_task_full(task_id)
+            if task:
+                security_logger.log_task_completed(
+                    task_id=task_id,
+                    email=task.get('email', 'unknown'),
+                    success=False,
+                    error=error_msg
+                )
 
 
 # 全局任務處理器實例
