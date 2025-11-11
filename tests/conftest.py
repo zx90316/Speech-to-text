@@ -17,7 +17,9 @@ sys.path.insert(0, str(project_root / "remote_server"))
 
 # 設置測試環境變數
 os.environ['TESTING'] = '1'
-os.environ['ENCRYPTION_KEY'] = 'test_encryption_key_32_bytes_long_123456789012='
+# 生成一個有效的 Fernet key（32 字節 URL-safe base64 編碼）
+# 這是固定的測試用 key，不要在生產環境使用
+os.environ['ENCRYPTION_KEY'] = 'vZFQNlYgXxpEQk5BODK48CVNd8D3Ji0HNSGUfyd5WDg='
 os.environ['EMAIL_HASH_SALT'] = 'test_salt_for_testing'
 os.environ['ADMIN_TOKEN'] = 'test_admin_token_for_testing'
 os.environ['SMTP_SERVER'] = 'smtp.test.com'
@@ -132,8 +134,9 @@ def mock_upload_file(sample_audio_file):
     with open(sample_audio_file, 'rb') as f:
         content = f.read()
     
-    mock_file.read = Mock(return_value=content)
-    mock_file.seek = Mock()
+    # 使用 AsyncMock 來支援異步操作
+    mock_file.read = AsyncMock(return_value=content)
+    mock_file.seek = AsyncMock(return_value=None)
     mock_file.file = BytesIO(content)
     
     return mock_file

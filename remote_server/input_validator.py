@@ -116,16 +116,16 @@ class InputValidator:
         if len(filename) > 255:
             return False, "文件名過長（最多 255 字符）"
 
-        # 移除路徑部分，只保留文件名
-        filename = os.path.basename(filename)
-
-        # 檢查路徑遍歷攻擊
+        # 檢查路徑遍歷攻擊（在移除路徑之前檢查）
         if '..' in filename or '/' in filename or '\\' in filename:
             return False, "文件名包含非法字符"
 
         # 檢查是否包含 null 字節
         if '\x00' in filename:
             return False, "文件名包含非法字符"
+
+        # 移除路徑部分，只保留文件名
+        filename = os.path.basename(filename)
 
         # 檢查文件擴展名
         ext = Path(filename).suffix.lower()
