@@ -1,0 +1,56 @@
+# 測試需求文件
+# 包含運行所有測試所需的依賴項
+
+# 測試框架
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.11.0
+pytest-xdist>=3.3.0  # 並行測試
+
+# HTTP 測試
+httpx>=0.24.0
+requests>=2.31.0
+
+# FastAPI 測試支援
+fastapi>=0.104.0
+starlette>=0.27.0
+
+# Mock 和測試工具
+faker>=19.0.0  # 生成測試數據
+factory-boy>=3.3.0  # 工廠模式生成測試對象
+freezegun>=1.2.0  # 時間模擬
+
+# 覆蓋率報告
+coverage>=7.3.0
+coverage-badge>=1.1.0
+
+# 程式碼品質檢查（可選，但建議）
+flake8>=6.1.0
+black>=23.9.0
+isort>=5.12.0
+mypy>=1.5.0
+
+# 安全掃描
+bandit>=1.7.5
+safety>=2.3.0
+
+# 性能測試
+locust>=2.15.0  # 負載測試（可選）
+
+# 文檔生成
+pytest-html>=3.2.0  # HTML 測試報告
+
+# 主專案依賴項（從 remote_server/requirements.txt）
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+cryptography>=41.0.5
+pydantic>=2.4.2
+pydantic-settings>=2.0.3
+slowapi>=0.1.9
+
+# 開發依賴
+ipython>=8.15.0  # 互動式 shell（可選）
+ipdb>=0.13.13  # 互動式除錯（可選）
+
