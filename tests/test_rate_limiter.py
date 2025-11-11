@@ -280,6 +280,10 @@ class TestRateLimiter:
         """測試清理過期記錄"""
         limiter = RateLimiter()
         
+        # 清空現有記錄以避免其他測試的干擾
+        limiter.ip_requests.clear()
+        limiter.email_code_requests.clear()
+        
         # 添加一些記錄
         ip = "192.168.1.113"
         email = "test12@example.com"
@@ -287,14 +291,20 @@ class TestRateLimiter:
         limiter.check_ip_rate_limit(ip, "test", 5, 1)
         limiter.check_email_verification_rate_limit(email, 5, 1)
         
+        # 確認記錄已創建
+        assert len(limiter.ip_requests.get(f"{ip}:test", [])) > 0
+        assert len(limiter.email_code_requests.get(email, [])) > 0
+        
         # 等待過期
         time.sleep(1.1)
         
         # 清理
         limiter.cleanup_expired_records()
         
-        # 檢查是否清理（間接測試 - 記錄應該被清空）
-        assert len(limiter.ip_requests.get(f"{ip}:test", [])) == 0
+        # 檢查過期記錄是否被清理
+        # 注意：清理後字典鍵會被移除
+        assert f"{ip}:test" not in limiter.ip_requests or len(limiter.ip_requests.get(f"{ip}:test", [])) == 0
+        assert email not in limiter.email_code_requests or len(limiter.email_code_requests.get(email, [])) == 0
 
     def test_get_stats(self):
         """測試獲取統計信息"""

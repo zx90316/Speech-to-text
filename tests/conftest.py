@@ -147,6 +147,20 @@ def reset_singletons():
     # 重置所有單例
     from remote_server import crypto_utils, rate_limiter, security_logger, memory_storage, email_service
     
+    # 清理 RateLimiter 的內部數據
+    if hasattr(rate_limiter.RateLimiter, '_instance') and rate_limiter.RateLimiter._instance is not None:
+        instance = rate_limiter.RateLimiter._instance
+        if hasattr(instance, 'ip_requests'):
+            instance.ip_requests.clear()
+        if hasattr(instance, 'email_verification_failures'):
+            instance.email_verification_failures.clear()
+        if hasattr(instance, 'email_code_requests'):
+            instance.email_code_requests.clear()
+        if hasattr(instance, 'ip_blacklist'):
+            instance.ip_blacklist.clear()
+        if hasattr(instance, 'email_blacklist'):
+            instance.email_blacklist.clear()
+    
     # 清理單例狀態
     if hasattr(crypto_utils.CryptoUtils, '_instance'):
         crypto_utils.CryptoUtils._instance = None
