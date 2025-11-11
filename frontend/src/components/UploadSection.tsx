@@ -171,52 +171,57 @@ export function UploadSection({ onUpload, onEmailVerified, disabled }: UploadSec
             </button>
           </div>
 
-          <div
-            className={`drop-zone ${isDragging ? 'dragging' : ''} ${disabled ? 'disabled' : ''}`}
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onClick={() => !disabled && fileInputRef.current?.click()}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".mp3,.wav,.m4a,.flac,audio/*"
-          onChange={handleFileInputChange}
-          style={{ display: 'none' }}
-          disabled={disabled}
-        />
-        
-        <Upload size={48} className="upload-icon" />
-        
-        {selectedFile ? (
-          <div className="file-info">
-            <div className="file-name">{selectedFile.name}</div>
-            <div className="file-size">{formatFileSize(selectedFile.size)}</div>
-            <button
-              className="remove-file-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedFile(null);
-                if (fileInputRef.current) {
-                  fileInputRef.current.value = '';
-                }
-              }}
+          <div className={`upload-player-container ${selectedFile ? 'has-file' : 'no-file'}`}>
+            <div
+              className={`drop-zone ${isDragging ? 'dragging' : ''} ${disabled ? 'disabled' : ''} ${selectedFile ? 'compact' : 'full'}`}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onClick={() => !disabled && fileInputRef.current?.click()}
             >
-              <X size={20} />
-            </button>
-          </div>
-        ) : (
-          <div className="drop-zone-text">
-            <p className="primary-text">點擊或拖曳檔案至此</p>
-            <p className="secondary-text">支援 MP3, WAV, M4A, FLAC 格式</p>
-          </div>
-        )}
-      </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".mp3,.wav,.m4a,.flac,audio/*"
+                onChange={handleFileInputChange}
+                style={{ display: 'none' }}
+                disabled={disabled}
+              />
+              
+              <Upload size={selectedFile ? 32 : 48} className="upload-icon" />
+              
+              {selectedFile ? (
+                <div className="file-info compact">
+                  <div className="file-name" title={selectedFile.name}>{selectedFile.name}</div>
+                  <div className="file-size">{formatFileSize(selectedFile.size)}</div>
+                  <button
+                    className="remove-file-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedFile(null);
+                      if (fileInputRef.current) {
+                        fileInputRef.current.value = '';
+                      }
+                    }}
+                    title="移除檔案"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : (
+                <div className="drop-zone-text">
+                  <p className="primary-text">點擊或拖曳檔案至此</p>
+                  <p className="secondary-text">支援 MP3, WAV, M4A, FLAC 格式</p>
+                </div>
+              )}
+            </div>
 
-      {selectedFile && (
-        <AudioPlayer file={selectedFile} onTimeRangeChange={handleTimeRangeChange} />
-      )}
+            {selectedFile && (
+              <div className="audio-player-wrapper">
+                <AudioPlayer file={selectedFile} onTimeRangeChange={handleTimeRangeChange} />
+              </div>
+            )}
+          </div>
 
       <div className="options">
         <label className="checkbox-label">
@@ -276,35 +281,6 @@ export function UploadSection({ onUpload, onEmailVerified, disabled }: UploadSec
             </label>
           </div>
         </div>
-
-
-        <div className="model-selector">
-          <label htmlFor="model">Whisper 模型：</label>
-          <select
-            id="model"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            disabled={disabled}
-          >
-            <option value="CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32">CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32</option>
-            <option value="XA9/Belle-faster-whisper-large-v3-zh-punct">XA9/Belle-faster-whisper-large-v3-zh-punct</option>
-          </select>
-        </div>
-
-        <div className="compute-type-selector">
-          <label htmlFor="computeType">計算類型：</label>
-          <select
-            id="computeType"
-            value={computeType}
-            onChange={(e) => setComputeType(e.target.value)}
-            disabled={disabled}
-          >
-            <option value="float32">float32 (建議，精度高)</option>
-            <option value="float16">float16 (較快，精度中等)</option>
-            <option value="int8">int8 (快，經度低，但部分 GPU 不支持)</option>
-            <option value="default">默認</option>
-          </select>
-        </div>
       </div>
 
       {/* 進階參數區域 */}
@@ -320,7 +296,35 @@ export function UploadSection({ onUpload, onEmailVerified, disabled }: UploadSec
 
         {showAdvanced && (
           <div className="advanced-options">
+            <div className="model-selector">
+                <label htmlFor="model">Whisper 模型：</label>
+                <select
+                  id="model"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  disabled={disabled}
+                >
+                  <option value="CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32">CWTchen/Belle-whisper-large-v3-zh-punct-ct2-float32</option>
+                  <option value="XA9/Belle-faster-whisper-large-v3-zh-punct">XA9/Belle-faster-whisper-large-v3-zh-punct</option>
+                </select>
+              </div>
+
+              <div className="compute-type-selector">
+                <label htmlFor="computeType">計算類型：</label>
+                <select
+                  id="computeType"
+                  value={computeType}
+                  onChange={(e) => setComputeType(e.target.value)}
+                  disabled={disabled}
+                >
+                  <option value="float32">float32 (建議，精度高)</option>
+                  <option value="float16">float16 (較快，精度中等)</option>
+                  <option value="int8">int8 (快，經度低，但部分 GPU 不支持)</option>
+                  <option value="default">默認</option>
+                </select>
+              </div>
             <div className="advanced-row">
+              
               <div className="param-group">
                 <label htmlFor="vadOnset">
                   VAD 檢測敏感度：

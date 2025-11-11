@@ -133,13 +133,7 @@ function App() {
               disabled={uploading}
             />
 
-            {currentTaskId && (
-              <TaskProgress
-                taskId={currentTaskId}
-                onClose={handleCloseProgress}
-                onComplete={handleTaskComplete}
-              />
-            )}
+            
           </div>
 
           <div className="right-panel">
@@ -147,6 +141,13 @@ function App() {
               onSelectTask={handleSelectHistoryTask}
               refreshTrigger={refreshTrigger}
             />
+            {currentTaskId && (
+              <TaskProgress
+                taskId={currentTaskId}
+                onClose={handleCloseProgress}
+                onComplete={handleTaskComplete}
+              />
+            )}
           </div>
         </div>
       </main>
