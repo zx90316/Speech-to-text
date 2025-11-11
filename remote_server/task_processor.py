@@ -3,12 +3,40 @@
 將原有的 Whisper 轉錄邏輯改造為異步任務
 """
 import os
+import sys
+
+# ============================================================================
+# 重要：在導入任何第三方庫之前，必須先設置離線模式環境變量！
+# 否則 pyannote、transformers 等庫在導入時就會嘗試連接網路
+# ============================================================================
+
+# 強制 Hugging Face Hub 使用離線模式（僅使用本地緩存）
+# 這是為了符合服務器限制對外聯網的安全要求
+# 所有模型應該預先下載到 ~/.cache/huggingface/ 中
+os.environ['HF_HUB_OFFLINE'] = '1'
+os.environ['TRANSFORMERS_OFFLINE'] = '1'
+os.environ['HF_DATASETS_OFFLINE'] = '1'
+
+# 禁用 telemetry 和自動更新檢查
+os.environ['DO_NOT_TRACK'] = '1'
+os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
+
+# 移除代理設置，避免嘗試通過代理連接網路
+# 某些環境變量可能已設置代理，在離線模式下需要清除
+for proxy_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 
+                   'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy']:
+    if proxy_var in os.environ:
+        del os.environ[proxy_var]
+
+# ============================================================================
+# 現在可以安全地導入其他模組
+# ============================================================================
+
 import time
 import subprocess
 import asyncio
 from pathlib import Path
 import faulthandler
-import sys
 
 # 啟用 faulthandler 以捕獲 segmentation fault 等嚴重錯誤
 # 將錯誤信息輸出到 stderr，幫助診斷 C++ 擴展模組的崩潰問題
@@ -105,7 +133,7 @@ class TaskProcessor:
         self._cancelled = False
     
     def load_whisper_model(self, model_name: str ,compute_type: str = "default"):
-        """載入 Whisper 模型（確保只有一個模型實例）"""
+        """載入 Whisper 模型（僅使用本地緩存）"""
         if self.whisper_model is not None and self.current_model_name == model_name:
             # 模型已載入且相同，無需重新載入
             return
@@ -113,14 +141,14 @@ class TaskProcessor:
         # 卸載舊模型
         self.unload_model()
 
-        # 載入新模型
+        # 載入新模型（從本地緩存）
         print(f"正在載入 Whisper 模型: {model_name} (設備: {self.device}) compute_type: {compute_type}")
 
         self.whisper_model = WhisperModel(
             model_name,
             device=self.device,
             compute_type=compute_type,
-            local_files_only=False
+            local_files_only=True  # 僅使用本地緩存，避免網路請求
         )
         self.current_model_name = model_name
         print(f"Whisper 模型載入完成: {model_name}")
@@ -130,7 +158,7 @@ class TaskProcessor:
         if self.diarization_loaded:
             return
 
-        print("正在載入語者分離模型...")
+        print("正在載入語者分離模型（從本地緩存）...")
         diarization_model_id = "pyannote/speaker-diarization-community-1"
         hf_token = os.getenv("HUGGINGFACE_TOKEN")
         self.diarization_model = Pipeline.from_pretrained(

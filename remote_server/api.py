@@ -335,7 +335,7 @@ async def get_task_status(task_id: str):
 
 
 @app.get("/api/tasks/{task_id}/stream", summary="串流任務進度（SSE）")
-async def stream_task_progress(task_id: str):
+async def stream_task_progress(request: Request, task_id: str):
     """
     使用 Server-Sent Events (SSE) 即時推送任務進度
 
@@ -348,59 +348,78 @@ async def stream_task_progress(task_id: str):
         raise HTTPException(status_code=404, detail="找不到該任務")
 
     async def event_generator():
-        """SSE 事件生成器"""
+        """SSE 事件生成器（優化版，處理 Windows asyncio 連線重置問題）"""
         last_progress = -1
         last_status = None
 
-        while True:
-            task = memory_manager.get_task(task_id)
-            if not task:
-                yield f"event: error\ndata: {{\"message\": \"任務不存在\"}}\n\n"
-                break
+        try:
+            while True:
+                # 檢查客戶端是否已斷開連接
+                if await request.is_disconnected():
+                    break
 
-            # 只在狀態改變時推送
-            if task['progress'] != last_progress or task['status'] != last_status:
-                last_progress = task['progress']
-                last_status = task['status']
+                task = memory_manager.get_task(task_id)
+                if not task:
+                    yield f"event: error\ndata: {{\"message\": \"任務不存在\"}}\n\n"
+                    break
 
-                queue_position = 0
-                if task['status'] == 'pending':
-                    queue_position = memory_manager.get_queue_position(task_id)
-                
-                event_data = {
-                    "status": task['status'],
-                    "progress": task['progress'],
-                    "current_stage": task['current_stage'],
-                    "queue_position": queue_position,
-                    "error_message": task['error_message'],
-                    "has_result": task['status'] == 'completed',
-                    "timestamp": datetime.now().isoformat()
-                }
+                # 只在狀態改變時推送
+                if task['progress'] != last_progress or task['status'] != last_status:
+                    last_progress = task['progress']
+                    last_status = task['status']
 
-                # 如果有 ASR 進度信息，也一併推送
-                if task.get('asr_progress'):
-                    event_data['asr_progress'] = task['asr_progress']
+                    queue_position = 0
+                    if task['status'] == 'pending':
+                        queue_position = memory_manager.get_queue_position(task_id)
 
-                # 如果有部分結果，也一併推送
-                if task.get('partial_result'):
-                    event_data['partial_result'] = task['partial_result']
-                
-                import json
-                yield f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
-            
-            # 如果任務已完成或失敗，結束串流
-            if task['status'] in ('completed', 'failed', 'canceled'):
-                break
-            
-            # 等待一段時間後再次檢查
-            await asyncio.sleep(0.5)
-    
+                    event_data = {
+                        "status": task['status'],
+                        "progress": task['progress'],
+                        "current_stage": task['current_stage'],
+                        "queue_position": queue_position,
+                        "error_message": task['error_message'],
+                        "has_result": task['status'] == 'completed',
+                        "timestamp": datetime.now().isoformat()
+                    }
+
+                    # 如果有 ASR 進度信息，也一併推送
+                    if task.get('asr_progress'):
+                        event_data['asr_progress'] = task['asr_progress']
+
+                    # 如果有部分結果，也一併推送
+                    if task.get('partial_result'):
+                        event_data['partial_result'] = task['partial_result']
+
+                    import json
+                    try:
+                        yield f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                    except (ConnectionResetError, BrokenPipeError, RuntimeError):
+                        # 客戶端已關閉連線，優雅退出
+                        break
+
+                # 如果任務已完成或失敗，結束串流
+                if task['status'] in ('completed', 'failed', 'canceled'):
+                    # 給客戶端一點時間接收最後的消息
+                    await asyncio.sleep(0.3)
+                    break
+
+                # 等待一段時間後再次檢查
+                await asyncio.sleep(0.5)
+
+        except (asyncio.CancelledError, GeneratorExit):
+            # 客戶端主動關閉連線或生成器被關閉，正常退出
+            pass
+        except Exception as e:
+            # 其他錯誤，記錄但不拋出
+            print(f"SSE 串流發生錯誤 (task_id={task_id}): {e}")
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # 禁用 Nginx 緩衝（如果有反向代理）
         }
     )
 
@@ -778,12 +797,68 @@ async def admin_cleanup_old_tasks(
 
 
 if __name__ == "__main__":
+    import sys
+    import platform
+    import socket
+
     # SSL/TLS 配置（直接在 Uvicorn 層處理 HTTPS）
     ssl_keyfile = os.getenv("SSL_KEYFILE", "C:\\nginx\\ssl\\server-key.pem")
     ssl_certfile = os.getenv("SSL_CERTFILE", "C:\\nginx\\ssl\\server-cert.pem")
 
     # 檢查是否啟用 HTTPS
     use_https = os.getenv("USE_HTTPS", "true").lower() == "true"
+
+    # Windows 平台專用：完全攔截 asyncio ProactorEventLoop 的 ConnectionResetError
+    if platform.system() == "Windows" and sys.version_info >= (3, 8):
+        # 方案 1：抑制 asyncio 日誌
+        import logging
+        logging.getLogger("asyncio").setLevel(logging.CRITICAL)
+
+        # 方案 2：猴子補丁 - 攔截 _ProactorBasePipeTransport._call_connection_lost
+        # 這是最徹底的解決方案，直接在異常發生處攔截
+        try:
+            from asyncio.proactor_events import _ProactorBasePipeTransport
+
+            def silent_call_connection_lost(self, _exc=None):
+                """
+                靜默版本的 _call_connection_lost，忽略 ConnectionResetError
+
+                這個方法替換了 asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost
+                以避免在 Windows HTTPS 環境下輸出大量的 ConnectionResetError traceback
+
+                根本原因：
+                - Windows 的 ProactorEventLoop 使用 IOCP 處理 I/O
+                - 當 HTTPS 客戶端提前關閉連線時，伺服器嘗試 shutdown() socket
+                - 此時遠端已斷線，導致 WinError 10054
+                - 這是正常的連線關閉流程，不應該輸出錯誤
+
+                修復方法：
+                - 捕獲 ConnectionResetError、ConnectionAbortedError、OSError
+                - 確保 socket 資源正確釋放
+                - 不拋出異常，不輸出 traceback
+                """
+                try:
+                    # 嘗試正常關閉 socket
+                    if self._sock is not None:
+                        self._sock.shutdown(socket.SHUT_RDWR)
+                except (ConnectionResetError, ConnectionAbortedError, OSError):
+                    # 忽略連線重置錯誤（這在 HTTPS 客戶端提前關閉連線時是正常的）
+                    pass
+                finally:
+                    # 確保 socket 被關閉並釋放資源
+                    if self._sock is not None:
+                        try:
+                            self._sock.close()
+                        except Exception:
+                            pass
+                    self._sock = None
+
+            # 替換原有方法
+            _ProactorBasePipeTransport._call_connection_lost = silent_call_connection_lost
+
+        except ImportError:
+            # 如果 asyncio.proactor_events 不存在（未來版本可能會改變），跳過補丁
+            pass
 
     # 生產環境建議配置
     uvicorn_config = {
@@ -803,6 +878,8 @@ if __name__ == "__main__":
         uvicorn_config["ssl_keyfile"] = ssl_keyfile
         uvicorn_config["ssl_certfile"] = ssl_certfile
         print(f"✓ HTTPS 已啟用 - 使用憑證: {ssl_certfile}")
+        if platform.system() == "Windows":
+            print(f"✓ Windows 平台：已套用 ConnectionResetError 修復（猴子補丁）")
     else:
         if use_https:
             print(f"⚠ 警告：USE_HTTPS=true 但憑證檔案不存在，將使用 HTTP")
