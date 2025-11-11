@@ -17,6 +17,9 @@ interface AdminTask {
   created_at: string;
   completed_at: string | null;
   has_result: boolean;
+  current_stage: string;
+  email_masked: string;
+  error_message: string;
 }
 
 interface AdminStats {
@@ -297,13 +300,14 @@ export function AdminPage() {
                   onChange={handleSelectAll}
                 />
               </th>
+              <th>用戶</th>
               <th>檔案名稱</th>
               <th>狀態</th>
               <th>進度</th>
-              <th>客戶端 IP</th>
               <th>建立時間</th>
               <th>完成時間</th>
               <th>任務 ID</th>
+              <th>錯誤訊息</th>
             </tr>
           </thead>
           <tbody>
@@ -331,6 +335,7 @@ export function AdminPage() {
                       onChange={() => handleSelectTask(task.task_id)}
                     />
                   </td>
+                  <td>{task.email_masked}</td>
                   <td className="filename-cell">{task.filename}</td>
                   <td>
                     <div className="status-badge">
@@ -338,11 +343,11 @@ export function AdminPage() {
                       {task.status}
                     </div>
                   </td>
-                  <td>{task.progress.toFixed(0)}%</td>
-                  <td>{task.client_ip}</td>
+                  <td>{task.current_stage} {task.progress.toFixed(0)}%</td>
                   <td>{formatDate(task.created_at)}</td>
                   <td>{formatDate(task.completed_at || '')}</td>
                   <td className="task-id-cell">{task.task_id.slice(0, 8)}...</td>
+                  <td>{task.error_message}</td>
                 </tr>
               ))
             )}
