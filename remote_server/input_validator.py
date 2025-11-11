@@ -104,34 +104,115 @@ class InputValidator:
     @staticmethod
     def validate_filename(filename: str) -> Tuple[bool, Optional[str]]:
         """
-        驗證文件名安全性
+        對用戶提供的文件名進行嚴格的安全驗證。
+
+        防範威脅：
+        1. Null 字節注入 (Null Byte Injection)
+        2. 路徑遍歷 (Path Traversal)
+        3. 控制字符 (Control Characters)
+        4. 系統保留名稱 (Reserved OS Filenames)
+        5. 特殊/非法字符 (用於命令注入、FS 錯誤)
+        6. 長度攻擊 (Length Attacks)
+        7. 空白/點結尾 (Whitespace/Dot Suffix)
+        8. 擴展名白名單 (Extension Whitelisting)
 
         Returns:
             (is_valid, error_message)
         """
-        if not filename:
+
+        # --- 安全配置 ---
+
+        # 1. Windows 保留文件名（不區分大小寫）
+        # 這些名稱在 Windows 上被系統保留，不能用作文件名
+        RESERVED_FILENAMES = {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        }
+
+        # 2. 檢查路徑分隔符
+        #    拒絕任何 *試圖* 包含路徑的輸入
+        #    這將捕獲 "/etc/passwd.mp3" 和 "test/file.mp3"
+        if '/' in filename or '\\' in filename:
+            return False, "文件名不應包含路徑分隔符 ( / 或 \\ )"
+
+        # 3. 檢查 '..'
+        #    明確拒絕 '..' 以防止路徑遍歷
+        #    這將捕獲 "../etc/passwd"
+        if '..' in filename:
+            return False, "文件名不應包含 '..' (路徑遍歷)"
+
+        # 2. C0 和 C1 控制字符的正則表達式
+        # 這些是不可見字符，可能用於欺騙系統或日誌
+        # 禁止 \x00-\x1F (C0) 和 \x7F-\x9F (C1)
+        # \x00 (null) 已被單獨檢查，但包含在此處可作為多層防禦
+        CONTROL_CHAR_RE = re.compile(r'[\x00-\x1F\x7F-\x9F]')
+
+        # 3. 在多數文件系統或 shell 中非法的/危險的字符
+        # 包括： < > : " / \ | ? * ; & $ ` ( ) [ ] { }
+        # os.path.basename 會處理 / 和 \，但我們在黑名單中保留它們以防萬一
+        # 這些字符可能用於路徑遍歷、命令注入或創建無效文件
+        INVALID_FILENAME_CHARS_RE = re.compile(r'[<>:"/\\|?*;&$()`[\]{}]')
+
+        # 0. 基本類型檢查
+        if not filename or not isinstance(filename, str):
             return False, "文件名不能為空"
 
-        # 檢查長度
-        if len(filename) > 255:
+        # 1. 檢查 Null 字節 (高優先級)
+        # Null 字節 (`\x00`) 可以截斷 C 語言中的字符串，導致安全繞過
+        if '\x00' in filename:
+            return False, "文件名包含非法的 null 字節"
+
+        # 2. 移除路徑部分 (核心的路徑遍歷防禦)
+        # os.path.basename 會安全地提取文件名，丟棄所有前面的路徑
+        # 例如 "..\..\secret.txt" -> "secret.txt"
+        # 例如 "/etc/passwd" -> "passwd"
+        # 例如 "C:\\Windows\\system32.dll" -> "system32.dll"
+        base_filename = os.path.basename(filename)
+
+        # 3. 檢查 `basename` 後的結果
+        # 如果原始輸入是 ".." 或 "." 或 "///" 之類的，basename 可能返回 "." 或 ".." 或空
+        if not base_filename or base_filename in {".", ".."}:
+            return False, "文件名無效（例如，僅包含點或路徑分隔符）"
+
+        # 4. 檢查長度
+        if len(base_filename) > 255:
             return False, "文件名過長（最多 255 字符）"
 
-        # 檢查路徑遍歷攻擊（在移除路徑之前檢查）
-        if '..' in filename or '/' in filename or '\\' in filename:
-            return False, "文件名包含非法字符"
+        # 5. 檢查控制字符
+        if CONTROL_CHAR_RE.search(base_filename):
+            return False, "文件名包含非法的控制字符"
 
-        # 檢查是否包含 null 字節
-        if '\x00' in filename:
-            return False, "文件名包含非法字符"
+        # 6. 檢查非法/危險字符 (黑名單)
+        if INVALID_FILENAME_CHARS_RE.search(base_filename):
+            return False, "文件名包含非法字符 (例如: <, >, :, \", |, ?, *, ;, &)"
 
-        # 移除路徑部分，只保留文件名
-        filename = os.path.basename(filename)
+        # 7. 檢查 Windows 保留文件名
+        # 移除擴展名後，檢查名稱是否在保留列表中（不區分大小寫）
+        name_part = os.path.splitext(base_filename)[0]
+        if name_part.upper() in RESERVED_FILENAMES:
+            return False, "文件名是系統保留名稱（例如 CON, PRN）"
 
-        # 檢查文件擴展名
-        ext = Path(filename).suffix.lower()
+        # 8. 檢查開頭或結尾的空白/點 (Windows 特有問題)
+        # Windows 會自動移除這些，可能導致 'file.txt' 和 'file.txt ' 混淆
+        if base_filename.startswith(' ') or base_filename.endswith(' ') or base_filename.endswith('.'):
+            return False, "文件名不能以空格開頭或結尾，也不能以點結尾"
+
+        # 9. 檢查文件擴展名 (白名單)
+        ext = Path(base_filename).suffix.lower()
+        if not ext:
+            return False, "文件缺少擴展名"
+            
         if ext not in InputValidator.ALLOWED_AUDIO_EXTENSIONS:
             return False, f"不支持的文件格式。允許的格式: {', '.join(InputValidator.ALLOWED_AUDIO_EXTENSIONS)}"
 
+        # 10. (可選) 原始函數中的 '..'/'/'/'\' 檢查
+        # 雖然 os.path.basename 已處理，但多一層檢查無害
+        # 確保文件名 *本身* 不包含這些
+        if '..' in base_filename or '/' in base_filename or '\\' in base_filename:
+            return False, "文件名本身不應包含 '..' 或路徑分隔符"
+
+        # 所有檢查通過
         return True, None
 
     @staticmethod

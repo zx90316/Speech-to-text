@@ -283,29 +283,37 @@ class TestRateLimiter:
         # 清空現有記錄以避免其他測試的干擾
         limiter.ip_requests.clear()
         limiter.email_code_requests.clear()
+        limiter.email_verification_failures.clear()
         
         # 添加一些記錄
         ip = "192.168.1.113"
         email = "test12@example.com"
         
-        limiter.check_ip_rate_limit(ip, "test", 5, 1)
-        limiter.check_email_verification_rate_limit(email, 5, 1)
+        limiter.check_ip_rate_limit(ip, "test", 5, 60)
+        limiter.check_email_verification_rate_limit(email, 5, 3600)
         
         # 確認記錄已創建
         assert len(limiter.ip_requests.get(f"{ip}:test", [])) > 0
         assert len(limiter.email_code_requests.get(email, [])) > 0
         
-        # 等待過期
-        time.sleep(1.1)
+        # 手動將記錄時間戳設置為很舊（超過清理閾值）
+        # IP 請求記錄的清理閾值是 3600 秒
+        very_old_time = time.time() - 3700  # 比 3600 秒更舊
+        limiter.ip_requests[f"{ip}:test"].clear()
+        limiter.ip_requests[f"{ip}:test"].append(very_old_time)
         
-        # 清理
+        # 郵箱驗證碼請求的清理閾值也是 3600 秒
+        limiter.email_code_requests[email].clear()
+        limiter.email_code_requests[email].append(very_old_time)
+        
+        # 清理過期記錄
         limiter.cleanup_expired_records()
         
         # 檢查過期記錄是否被清理
-        # 注意：清理後字典鍵會被移除
-        assert f"{ip}:test" not in limiter.ip_requests or len(limiter.ip_requests.get(f"{ip}:test", [])) == 0
-        assert email not in limiter.email_code_requests or len(limiter.email_code_requests.get(email, [])) == 0
-
+        # 清理後，過期的記錄應該被移除，字典鍵也會被刪除
+        assert f"{ip}:test" not in limiter.ip_requests
+        assert email not in limiter.email_code_requests
+        
     def test_get_stats(self):
         """測試獲取統計信息"""
         limiter = RateLimiter()

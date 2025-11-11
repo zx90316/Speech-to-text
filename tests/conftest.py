@@ -7,7 +7,7 @@ import pytest
 import tempfile
 import shutil
 from pathlib import Path
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, AsyncMock
 from datetime import datetime, timedelta
 
 # 添加專案根目錄到 Python 路徑

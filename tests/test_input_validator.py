@@ -4,7 +4,7 @@
 import pytest
 import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock, Mock
+from unittest.mock import MagicMock, AsyncMock, AsyncMock
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "remote_server"))

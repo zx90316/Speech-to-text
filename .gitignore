@@ -33,3 +33,5 @@ WI-GA202-填寫說明.md
 ~$-GA202：03資通系統資安防護基準檢核表_Whisper語音轉文字系統_普級_已填寫.docx
 WI-GA202：01安全等級評估表_AI輔助系統(語音轉文字).docx
 WI-GA202：03資通系統資安防護基準檢核表V2_AI輔助系統(語音轉文字).docx
+.coverage
+.gitignore
