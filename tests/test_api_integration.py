@@ -13,6 +13,7 @@ API 整合測試
 或使用環境變數指定 API URL：
    API_BASE_URL=http://localhost:8000 pytest tests/test_api_integration.py -v
    API_BASE_URL=https://localhost:8100 pytest tests/test_api_integration.py -v
+   API_BASE_URL=https://localhost:8100 pytest tests/test_api_integration.py -v
 """
 import pytest
 import requests
