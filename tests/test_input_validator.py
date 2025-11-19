@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock, AsyncMock
 
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent / "remote_server"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 from input_validator import InputValidator, input_validator
 

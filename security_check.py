@@ -63,7 +63,7 @@ def run_bandit():
 
     # 執行 bandit (僅 JSON 格式,只執行一次)
     result = run_command(
-        [sys.executable, "-m", "bandit", "-r", "remote_server", "frontend/src",
+        [sys.executable, "-m", "bandit", "-r", "backend", "frontend/src",
          "-f", "json",
          "--exclude", "./.git,./node_modules,./venv,./venv_*,./.venv"],
         "Bandit 靜態分析"

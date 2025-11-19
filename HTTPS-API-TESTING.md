@@ -274,7 +274,7 @@ $env:API_BASE_URL="https://localhost:8100"
 $env:VERIFY_SSL="false"
 
 # 2. 啟動 API（另一個終端）
-cd remote_server
+cd backend
 python -m uvicorn api:app --reload --port 8100 --ssl-keyfile=key.pem --ssl-certfile=cert.pem
 
 # 3. 運行測試

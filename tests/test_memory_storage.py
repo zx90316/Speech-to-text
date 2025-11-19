@@ -8,7 +8,7 @@ from datetime import datetime
 from unittest.mock import patch, MagicMock
 
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent / "remote_server"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 from memory_storage import MemoryTaskManager, memory_manager
 
@@ -433,7 +433,7 @@ class TestMemoryTaskManager:
             result_path.mkdir(parents=True, exist_ok=True)
             
             # 清理文件
-            with patch('remote_server.memory_storage.security_logger'):
+            with patch('backend.memory_storage.security_logger'):
                 result = manager.cleanup_task_files('cleanup-task')
             
             # 應該成功清理

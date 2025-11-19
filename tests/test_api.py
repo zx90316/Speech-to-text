@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
 
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent / "remote_server"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 
 # 由於 API 模組的導入可能會初始化很多東西，我們在測試中小心處理
@@ -168,9 +168,9 @@ class TestAPISecurity:
 class TestAPIMocked:
     """使用 Mock 的 API 測試"""
     
-    @patch('remote_server.email_service.email_service')
-    @patch('remote_server.input_validator.input_validator')
-    @patch('remote_server.rate_limiter.rate_limiter')
+    @patch('backend.email_service.email_service')
+    @patch('backend.input_validator.input_validator')
+    @patch('backend.rate_limiter.rate_limiter')
     def test_send_verification_mock(self, mock_rate, mock_validator, mock_email):
         """測試發送驗證碼（使用 Mock）"""
         # 設置 mock 返回值
@@ -182,7 +182,7 @@ class TestAPIMocked:
         # 這裡可以測試業務邏輯
         assert True  # 實際測試需要導入 API
 
-    @patch('remote_server.memory_storage.memory_manager')
+    @patch('backend.memory_storage.memory_manager')
     def test_get_task_status_mock(self, mock_memory):
         """測試獲取任務狀態（使用 Mock）"""
         # 設置 mock 返回值
@@ -195,8 +195,8 @@ class TestAPIMocked:
         # 測試邏輯
         assert True
 
-    @patch('remote_server.memory_storage.memory_manager')
-    @patch('remote_server.input_validator.input_validator')
+    @patch('backend.memory_storage.memory_manager')
+    @patch('backend.input_validator.input_validator')
     def test_upload_file_mock(self, mock_validator, mock_memory):
         """測試文件上傳（使用 Mock）"""
         mock_validator.validate_upload_file = AsyncMock(return_value=(True, None))
@@ -329,7 +329,7 @@ class TestAPIValidation:
     
     def test_email_validation_in_request(self):
         """測試請求中的郵箱驗證"""
-        from remote_server.input_validator import InputValidator
+        from backend.input_validator import InputValidator
         
         # 有效郵箱
         is_valid, error = InputValidator.validate_email("test@example.com")
@@ -341,7 +341,7 @@ class TestAPIValidation:
 
     def test_file_validation_in_request(self):
         """測試請求中的文件驗證"""
-        from remote_server.input_validator import InputValidator
+        from backend.input_validator import InputValidator
         
         # 有效文件名
         is_valid, error = InputValidator.validate_filename("test.mp3")
@@ -353,7 +353,7 @@ class TestAPIValidation:
 
     def test_task_id_validation(self):
         """測試任務 ID 驗證"""
-        from remote_server.input_validator import InputValidator
+        from backend.input_validator import InputValidator
         
         # 有效 UUID
         is_valid, error = InputValidator.validate_task_id(

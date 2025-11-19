@@ -58,7 +58,7 @@
 
 ```bash
 # 進入後端目錄
-cd remote_server
+cd backend
 
 # 創建虛擬環境
 python -m venv .venv
@@ -75,7 +75,7 @@ pip install -r requirements.txt
 
 #### 設定環境變數
 
-在 `remote_server/` 目錄下創建 `.env` 檔案：
+在 `backend/` 目錄下創建 `.env` 檔案：
 
 ```env
 HUGGINGFACE_TOKEN=your_huggingface_token_here
@@ -87,7 +87,7 @@ ADMIN_TOKEN=your_admin_token_here
 #### 啟動後端服務
 
 ```bash
-cd remote_server
+cd backend
 python api.py
 ```
 
@@ -374,7 +374,7 @@ GET /api/preprocess/{preprocess_id}/download?file_type=processed
 
 ```
 Speech-to-text/
-├── remote_server/              # 後端服務
+├── backend/              # 後端服務
 │   ├── api.py                 # FastAPI 主應用
 │   ├── database.py            # SQLite 資料庫管理
 │   ├── task_processor.py      # 轉錄任務處理邏輯

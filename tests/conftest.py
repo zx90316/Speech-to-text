@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 # 添加專案根目錄到 Python 路徑
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-sys.path.insert(0, str(project_root / "remote_server"))
+sys.path.insert(0, str(project_root / "backend"))
 
 # 設置測試環境變數
 os.environ['TESTING'] = '1'
@@ -148,7 +148,7 @@ def reset_singletons():
     yield
     
     # 重置所有單例
-    from remote_server import crypto_utils, rate_limiter, security_logger, memory_storage, email_service
+    from backend import crypto_utils, rate_limiter, security_logger, memory_storage, email_service
     
     # 清理 RateLimiter 的內部數據
     if hasattr(rate_limiter.RateLimiter, '_instance') and rate_limiter.RateLimiter._instance is not None:
@@ -186,7 +186,7 @@ def api_client():
     """FastAPI 測試客戶端"""
     from fastapi.testclient import TestClient
     # 延遲導入以避免初始化問題
-    import remote_server.api as api_module
+    import backend.api as api_module
     
     client = TestClient(api_module.app)
     return client

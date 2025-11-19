@@ -4,7 +4,7 @@ API 整合測試
 
 使用方法：
 1. 先啟動 API 服務：
-   cd remote_server
+   cd backend
    python -m uvicorn api:app --reload --port 8000
 
 2. 在另一個終端運行測試：
@@ -417,7 +417,7 @@ def print_api_info():
         print(f"URL: {API_BASE_URL}")
         print(f"錯誤: {e}")
         print(f"\n請先啟動 API 服務：")
-        print(f"  cd remote_server")
+        print(f"  cd backend")
         print(f"  python -m uvicorn api:app --reload --port 8000")
         print(f"\n或設置正確的 API_BASE_URL 環境變數：")
         print(f"  $env:API_BASE_URL='https://localhost:8100'")

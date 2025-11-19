@@ -11,7 +11,7 @@ from io import BytesIO
 from unittest.mock import patch, MagicMock, AsyncMock
 
 # 添加路徑
-sys.path.insert(0, str(Path(__file__).parent.parent / "remote_server"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 
 @pytest.fixture(scope="module")
@@ -43,14 +43,14 @@ class TestAPIWithMocks:
     def test_api_with_mocked_dependencies(self, mock_whisper_model, mock_task_processor):
         """測試帶 Mock 依賴的 API"""
         # 模擬所有重量級依賴
-        with patch('remote_server.task_processor.whisper') as mock_whisper, \
-             patch('remote_server.task_processor.task_processor', mock_task_processor):
+        with patch('backend.task_processor.whisper') as mock_whisper, \
+             patch('backend.task_processor.task_processor', mock_task_processor):
             
             mock_whisper.load_model.return_value = mock_whisper_model
             
             # 現在可以安全地導入 API
             from fastapi.testclient import TestClient
-            from remote_server.api import app
+            from backend.api import app
             
             client = TestClient(app)
             

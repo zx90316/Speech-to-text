@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Whisper Speech-to-Text API service with **email-based verification** and a modern React frontend. The project uses **memory-based storage** instead of databases for better security and simplicity. The project consists of:
 
-- **Backend (remote_server/)**: FastAPI-based service for speech-to-text processing using Faster-Whisper and Pyannote, with memory storage and email delivery
+- **Backend (backend/)**: FastAPI-based service for speech-to-text processing using Faster-Whisper and Pyannote, with memory storage and email delivery
 - **Frontend (frontend/)**: React + TypeScript + Vite application with email verification, file upload, and progress monitoring
 
 ## Commands
@@ -15,7 +15,7 @@ This is a Whisper Speech-to-Text API service with **email-based verification** a
 
 ```bash
 # Navigate to backend directory
-cd remote_server
+cd backend
 
 # Install Python dependencies
 pip install -r requirements.txt
@@ -49,7 +49,7 @@ The frontend development server runs on `http://localhost:5173` with API proxy t
 
 ### Environment Setup
 
-The backend requires a `.env` file in `remote_server/` with SMTP configuration for email service:
+The backend requires a `.env` file in `backend/` with SMTP configuration for email service:
 
 ```env
 HUGGINGFACE_TOKEN=your_huggingface_token_here
@@ -67,7 +67,7 @@ Reference [.env.txt](.env.txt) for the template.
 
 ## Architecture Overview
 
-### Backend Architecture (remote_server/)
+### Backend Architecture (backend/)
 
 - **api.py**: FastAPI main application with all API endpoints (email verification, task submission, progress streaming)
 - **memory_storage.py**: In-memory task storage using OrderedDict (no database required)
@@ -132,7 +132,7 @@ The backend uses a **memory-based** architecture where:
 
 ### Memory Storage Schema
 
-In-memory OrderedDict storage in [remote_server/memory_storage.py](remote_server/memory_storage.py):
+In-memory OrderedDict storage in [backend/memory_storage.py](backend/memory_storage.py):
 
 **Task Data Structure**:
 - Task metadata (task_id, email, filename, status, progress, current_stage)
@@ -186,7 +186,7 @@ See full API documentation at `http://localhost:8000/docs` when server is runnin
 
 ## Important Task Processing Details
 
-### Task Processor ([remote_server/task_processor.py](remote_server/task_processor.py))
+### Task Processor ([backend/task_processor.py](backend/task_processor.py))
 
 The `TaskProcessor` class handles:
 - **Model Management**: Singleton pattern for Whisper and Pyannote models to prevent multiple instances
@@ -200,7 +200,7 @@ The `TaskProcessor` class handles:
 - **Email Delivery**: Sends results via email with transcript.txt and optional confidence_report.html attachments
 - **Auto Cleanup**: Deletes all temporary files after successful email delivery
 
-### API Server ([remote_server/api.py](remote_server/api.py))
+### API Server ([backend/api.py](backend/api.py))
 
 The FastAPI application uses:
 - **Async Queue System**: `asyncio.Queue` for transcription task processing
@@ -210,7 +210,7 @@ The FastAPI application uses:
 - **CORS Middleware**: Configured for cross-origin requests
 - **Memory Storage**: Uses `memory_manager` singleton for all task data
 
-### Email Service ([remote_server/email_service.py](remote_server/email_service.py))
+### Email Service ([backend/email_service.py](backend/email_service.py))
 
 Handles all email operations:
 - **Verification Codes**: Generates 6-digit codes with 5-minute expiry
@@ -222,7 +222,7 @@ Handles all email operations:
   - Optional confidence_report.html attachment (if enabled)
   - Preview of first 500 characters in email body
 
-### Memory Storage ([remote_server/memory_storage.py](remote_server/memory_storage.py))
+### Memory Storage ([backend/memory_storage.py](backend/memory_storage.py))
 
 In-memory task management:
 - **OrderedDict**: Maintains task insertion order for queue management
@@ -247,7 +247,7 @@ In-memory task management:
 
 ### Security Modules (New in v2.1.0)
 
-#### 1. Security Logger ([remote_server/security_logger.py](remote_server/security_logger.py))
+#### 1. Security Logger ([backend/security_logger.py](backend/security_logger.py))
 
 Comprehensive logging system with 5 log types:
 - **auth.log** (180 days retention): Authentication attempts, verification codes, session management
@@ -258,7 +258,7 @@ Comprehensive logging system with 5 log types:
 
 All logs include: event_type, timestamp, ip_address, user_id, action, result, details
 
-#### 2. Input Validator ([remote_server/input_validator.py](remote_server/input_validator.py))
+#### 2. Input Validator ([backend/input_validator.py](backend/input_validator.py))
 
 Validates all user inputs to prevent attacks:
 - **Email validation**: RFC 5322 standard, dangerous character detection
@@ -267,7 +267,7 @@ Validates all user inputs to prevent attacks:
 - **Parameter validation**: Time ranges, language codes, model names, VAD parameters
 - **Task ID validation**: UUID format verification
 
-#### 3. Rate Limiter ([remote_server/rate_limiter.py](remote_server/rate_limiter.py))
+#### 3. Rate Limiter ([backend/rate_limiter.py](backend/rate_limiter.py))
 
 Prevents brute force attacks and DoS:
 - **IP-based limiting**: 100 requests/minute (general endpoints)
@@ -276,7 +276,7 @@ Prevents brute force attacks and DoS:
 - **Brute force protection**: 5 failed attempts → 30-minute email ban, 10-minute IP ban
 - **Blacklist management**: Automatic temporary bans with expiry
 
-#### 4. Crypto Utils ([remote_server/crypto_utils.py](remote_server/crypto_utils.py))
+#### 4. Crypto Utils ([backend/crypto_utils.py](backend/crypto_utils.py))
 
 Encryption and data protection:
 - **Password hashing**: PBKDF2-SHA256 (100,000 iterations)
@@ -348,7 +348,7 @@ TRUSTED_HOSTS=localhost,127.0.0.1
 ENABLE_DOCS=true  # Set to false in production
 ```
 
-See [remote_server/.env.example](remote_server/.env.example) for full configuration template.
+See [backend/.env.example](backend/.env.example) for full configuration template.
 
 ### SSDLC Compliance
 
@@ -393,7 +393,7 @@ pip-audit
 
 # Code security analysis
 pip install bandit
-bandit -r remote_server -ll
+bandit -r backend -ll
 
 # OWASP ZAP for penetration testing
 # https://www.zaproxy.org/
@@ -404,7 +404,7 @@ bandit -r remote_server -ll
 
 ### Logging and Monitoring
 
-**Log locations**: `remote_server/logs/`
+**Log locations**: `backend/logs/`
 
 **Key logs to monitor**:
 - `security.log` - Security events (rate limits, unauthorized access)
