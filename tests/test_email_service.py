@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock, Mock, mock_open
 from email.mime.multipart import MIMEMultipart
 
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent / "remote_server"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 from email_service import EmailService, email_service
 

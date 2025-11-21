@@ -41,7 +41,7 @@ locust>=2.15.0  # 負載測試（可選）
 # 文檔生成
 pytest-html>=3.2.0  # HTML 測試報告
 
-# 主專案依賴項（從 remote_server/requirements.txt）
+# 主專案依賴項（從 backend/requirements.txt）
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6

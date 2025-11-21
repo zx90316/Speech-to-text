@@ -2,9 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(.venvScriptspython.exe remote_serverapi_preprocess_only.py)",
-      "Bash(venv/Scripts/python.exe remote_server/api_preprocess_only.py:*)",
-      "Bash(.venv/Scripts/python.exe remote_server/api_preprocess_only.py:*)",
+      "Bash(.venvScriptspython.exe backendapi_preprocess_only.py)",
+      "Bash(venv/Scripts/python.exe backend/api_preprocess_only.py:*)",
+      "Bash(.venv/Scripts/python.exe backend/api_preprocess_only.py:*)",
       "Bash(curl:*)",
       "Bash(.venv/Scripts/python.exe test_api_preprocess.py:*)",
       "Bash(.venv/Scripts/python.exe test_echo_removal.py:*)",

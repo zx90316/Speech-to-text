@@ -58,7 +58,7 @@ A complete speech-to-text API service based on Faster-Whisper and Pyannote, feat
 
 ```bash
 # Navigate to backend directory
-cd remote_server
+cd backend
 
 # Create virtual environment
 python -m venv .venv
@@ -75,7 +75,7 @@ pip install -r requirements.txt
 
 #### Configure Environment Variables
 
-Create a `.env` file in the `remote_server/` directory:
+Create a `.env` file in the `backend/` directory:
 
 ```env
 HUGGINGFACE_TOKEN=your_huggingface_token_here
@@ -87,7 +87,7 @@ Get Hugging Face Token: Visit [Hugging Face Settings](https://huggingface.co/set
 #### Start Backend Service
 
 ```bash
-cd remote_server
+cd backend
 python api.py
 ```
 
@@ -374,7 +374,7 @@ GET /api/preprocess/{preprocess_id}/download?file_type=processed
 
 ```
 Speech-to-text/
-├── remote_server/              # Backend service
+├── backend/              # Backend service
 │   ├── api.py                 # FastAPI main application
 │   ├── database.py            # SQLite database management
 │   ├── task_processor.py      # Transcription task processor
