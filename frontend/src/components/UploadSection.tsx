@@ -48,7 +48,7 @@ export function UploadSection({ onUpload, onEmailVerified, disabled }: UploadSec
   const [minSpeakers, setMinSpeakers] = useState<number | undefined>(undefined);
   const [maxSpeakers, setMaxSpeakers] = useState<number | undefined>(undefined);
   const [enableConfidenceScore, setEnableConfidenceScore] = useState(true);
-  const [computeType, setComputeType] = useState<string>('float32');
+  const [computeType, setComputeType] = useState<string>('float16');
 
   // LLM 校對參數
   const [enableLlmCorrection, setEnableLlmCorrection] = useState(false);
@@ -317,7 +317,7 @@ export function UploadSection({ onUpload, onEmailVerified, disabled }: UploadSec
                   onChange={(e) => setComputeType(e.target.value)}
                   disabled={disabled}
                 >
-                  <option value="float32">float32 (建議，精度高)</option>
+                  <option value="float32">float32 (較慢，精度高)</option>
                   <option value="float16">float16 (較快，精度中等)</option>
                   <option value="int8">int8 (快，經度低，但部分 GPU 不支持)</option>
                   <option value="default">默認</option>

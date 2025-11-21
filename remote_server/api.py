@@ -177,6 +177,9 @@ async def process_queue():
             # 使用 get_task_full() 獲取完整任務資訊（包含檔案路徑）
             task = memory_manager.get_task_full(task_id)
             if not task or task['status'] == 'canceled':
+                # 任務已取消，卸載模型以釋放資源
+                print(f"任務 {task_id} 已取消，正在卸載模型...")
+                await asyncio.to_thread(task_processor.unload_model)
                 task_queue.task_done()
                 processing = False
                 continue
@@ -217,6 +220,13 @@ async def process_queue():
             )
 
             memory_manager.update_task_status(task_id, 'failed', error_message=error_msg)
+            
+            # 任務失敗時卸載模型以釋放資源
+            print(f"任務 {task_id} 失敗，正在卸載模型...")
+            try:
+                await asyncio.to_thread(task_processor.unload_model)
+            except Exception as unload_error:
+                print(f"卸載模型時發生錯誤: {type(unload_error).__name__}")
 
         finally:
             task_queue.task_done()
@@ -1072,8 +1082,6 @@ if __name__ == "__main__":
         "log_level": "info",
         "workers": int(os.getenv("UVICORN_WORKERS", "1")),  # 多 worker 支援（注意：記憶體儲存在多 worker 下不共享）
         "timeout_keep_alive": 75,
-        "limit_concurrency": 1000,  # 提高並發限制（從 100 → 1000）
-        "limit_max_requests": 10000,  # 每個 worker 處理 10000 個請求後重啟（防止記憶體洩漏）
         "backlog": 2048,  # 增加連線積壓佇列（預設 2048）
     }
 

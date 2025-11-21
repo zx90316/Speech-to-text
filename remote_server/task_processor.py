@@ -795,6 +795,8 @@ class TaskProcessor:
         try:
             # 檢查是否被取消
             if self.check_cancelled(task_id):
+                print(f"任務 {task_id} 已在開始前被取消，卸載模型...")
+                self.unload_model()
                 return
 
             # 載入 Whisper 模型
@@ -818,6 +820,8 @@ class TaskProcessor:
 
             # 檢查是否被取消
             if self.check_cancelled(task_id):
+                print(f"任務 {task_id} 在載入模型後被取消，卸載模型...")
+                self.unload_model()
                 return
 
             # 創建結果資料夾
@@ -837,6 +841,8 @@ class TaskProcessor:
             
             # 檢查是否被取消
             if self.check_cancelled(task_id):
+                print(f"任務 {task_id} 在音訊轉換後被取消，卸載模型...")
+                self.unload_model()
                 return
             
             # 卸載語者分離模型以節省 VRAM（保留 Whisper 模型）
@@ -928,6 +934,8 @@ class TaskProcessor:
             for segment in segments:
                 # 檢查是否被取消
                 if self.check_cancelled(task_id):
+                    print(f"任務 {task_id} 在 ASR 處理中被取消，卸載模型...")
+                    self.unload_model()
                     return
 
                 segment_count += 1
@@ -1023,6 +1031,8 @@ class TaskProcessor:
 
             # 檢查是否被取消
             if self.check_cancelled(task_id):
+                print(f"任務 {task_id} 在 ASR 完成後被取消，卸載模型...")
+                self.unload_model()
                 return
             
             # 語者分離（如果啟用）
@@ -1138,6 +1148,8 @@ class TaskProcessor:
             
             # 檢查是否被取消
             if self.check_cancelled(task_id):
+                print(f"任務 {task_id} 在生成結果前被取消，卸載模型...")
+                self.unload_model()
                 return
             
             # 生成信心度視覺化 HTML（如果有信心度資料）
@@ -1294,6 +1306,13 @@ class TaskProcessor:
                 'failed',
                 error_message=error_msg
             )
+
+            # 任務失敗時卸載模型以釋放資源
+            print(f"任務 {task_id} 失敗，卸載模型...")
+            try:
+                self.unload_model()
+            except Exception as unload_error:
+                print(f"卸載模型時發生錯誤: {type(unload_error).__name__}")
 
             # 記錄任務失敗日誌
             task = memory_manager.get_task_full(task_id)
