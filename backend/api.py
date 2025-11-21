@@ -288,6 +288,13 @@ async def debug_ip(request: Request):
     }
 
 
+def is_whitelisted_email(email: str) -> bool:
+    """檢查是否為白名單 email（可跳過驗證）"""
+    whitelist = os.getenv("EMAIL_WHITELIST", "").split(",")
+    whitelist = [e.strip().lower() for e in whitelist if e.strip()]
+    return email.lower() in whitelist
+
+
 @app.post("/api/tasks", summary="提交轉錄任務")
 async def create_task(
     request: Request,
@@ -323,12 +330,14 @@ async def create_task(
 
     返回任務ID，處理完成後會將結果發送至您的郵箱
     """
-    # 驗證郵箱是否已驗證
-    if not email_service.is_email_verified(email):
-        raise HTTPException(
-            status_code=403,
-            detail="郵箱未驗證，請先使用 /api/email/send-verification 發送驗證碼"
-        )
+    # 檢查是否為白名單 email（可跳過驗證）
+    if not is_whitelisted_email(email):
+        # 驗證郵箱是否已驗證
+        if not email_service.is_email_verified(email):
+            raise HTTPException(
+                status_code=403,
+                detail="郵箱未驗證，請先使用 /api/email/send-verification 發送驗證碼"
+            )
 
     # 驗證任務類型
     if task not in ["transcribe", "translate"]:
@@ -620,12 +629,14 @@ async def get_my_tasks(
     - **email**: 電子郵件地址
     - **limit**: 返回的任務數量（預設 50，最多 100）
     """
-    # 驗證郵箱是否已驗證
-    if not email_service.is_email_verified(email):
-        raise HTTPException(
-            status_code=403,
-            detail="郵箱未驗證，請先完成驗證"
-        )
+    # 檢查是否為白名單 email（可跳過驗證）
+    if not is_whitelisted_email(email):
+        # 驗證郵箱是否已驗證
+        if not email_service.is_email_verified(email):
+            raise HTTPException(
+                status_code=403,
+                detail="郵箱未驗證，請先完成驗證"
+            )
 
     # 記錄個資訪問日誌（GDPR 合規）
     ip_address = get_client_ip(request)
@@ -1003,101 +1014,14 @@ async def admin_cleanup_old_tasks(
 
 
 if __name__ == "__main__":
-    import sys
-    import platform
-    import socket
-
-    # SSL/TLS 配置（直接在 Uvicorn 層處理 HTTPS）
-    ssl_keyfile = os.getenv("SSL_KEYFILE", "C:\\nginx\\ssl\\server-key.pem")
-    ssl_certfile = os.getenv("SSL_CERTFILE", "C:\\nginx\\ssl\\server-cert.pem")
-
-    # 檢查是否啟用 HTTPS
-    use_https = os.getenv("USE_HTTPS", "true").lower() == "true"
-
-    # Windows 平台專用：完全攔截 asyncio ProactorEventLoop 的 ConnectionResetError
-    if platform.system() == "Windows" and sys.version_info >= (3, 8):
-        # 方案 1：抑制 asyncio 日誌
-        import logging
-        logging.getLogger("asyncio").setLevel(logging.CRITICAL)
-
-        # 方案 2：猴子補丁 - 攔截 _ProactorBasePipeTransport._call_connection_lost
-        # 這是最徹底的解決方案，直接在異常發生處攔截
-        try:
-            from asyncio.proactor_events import _ProactorBasePipeTransport
-
-            def silent_call_connection_lost(self, _exc=None):
-                """
-                靜默版本的 _call_connection_lost，忽略 ConnectionResetError
-
-                這個方法替換了 asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost
-                以避免在 Windows HTTPS 環境下輸出大量的 ConnectionResetError traceback
-
-                根本原因：
-                - Windows 的 ProactorEventLoop 使用 IOCP 處理 I/O
-                - 當 HTTPS 客戶端提前關閉連線時，伺服器嘗試 shutdown() socket
-                - 此時遠端已斷線，導致 WinError 10054
-                - 這是正常的連線關閉流程，不應該輸出錯誤
-
-                修復方法：
-                - 捕獲 ConnectionResetError、ConnectionAbortedError、OSError
-                - 確保 socket 資源正確釋放
-                - 不拋出異常，不輸出 traceback
-                """
-                try:
-                    # 嘗試正常關閉 socket
-                    if self._sock is not None:
-                        self._sock.shutdown(socket.SHUT_RDWR)
-                except (ConnectionResetError, ConnectionAbortedError, OSError):
-                    # 忽略連線重置錯誤（這在 HTTPS 客戶端提前關閉連線時是正常的）
-                    pass
-                finally:
-                    # 確保 socket 被關閉並釋放資源
-                    if self._sock is not None:
-                        try:
-                            self._sock.close()
-                        except Exception as e:  # nosec B110 - Socket 清理時的異常應被忽略，但記錄到日誌
-                            # 記錄到日誌供調試（不影響正常流程）
-                            import logging
-                            logging.getLogger("asyncio").debug(f"Socket cleanup exception (ignored): {e}")
-                    self._sock = None
-
-            # 替換原有方法
-            _ProactorBasePipeTransport._call_connection_lost = silent_call_connection_lost
-
-        except ImportError:
-            # 如果 asyncio.proactor_events 不存在（未來版本可能會改變），跳過補丁
-            pass
-
-    # 生產環境建議配置
-    # 允許通過環境變數配置綁定地址（安全性考量）
-    # 開發環境: 0.0.0.0（允許外部訪問）
-    # 生產環境: 127.0.0.1（僅允許本機訪問，搭配 Nginx 反向代理）
-    host = os.getenv("API_HOST", "127.0.0.1")  # nosec B104 - 預設使用 127.0.0.1，可透過環境變數覆蓋
-
     uvicorn_config = {
         "app": "api:app",
-        "host": host,
+        "host": os.getenv("API_HOST", "127.0.0.1"),
         "port": int(os.getenv("API_PORT", "8100")),
-        "reload": False,
+        "reload": True,
         "log_level": "info",
-        "workers": int(os.getenv("UVICORN_WORKERS", "1")),  # 多 worker 支援（注意：記憶體儲存在多 worker 下不共享）
-        "timeout_keep_alive": 75,
-        "backlog": 2048,  # 增加連線積壓佇列（預設 2048）
+        "workers": int(os.getenv("UVICORN_WORKERS", "1"))
     }
-
-    # 如果啟用 HTTPS 且憑證檔案存在，則添加 SSL 配置
-    if use_https and Path(ssl_keyfile).exists() and Path(ssl_certfile).exists():
-        uvicorn_config["ssl_keyfile"] = ssl_keyfile
-        uvicorn_config["ssl_certfile"] = ssl_certfile
-        print(f"✓ HTTPS 已啟用 - 使用憑證: {ssl_certfile}")
-        if platform.system() == "Windows":
-            print(f"✓ Windows 平台：已套用 ConnectionResetError 修復（猴子補丁）")
-    else:
-        if use_https:
-            print(f"⚠ 警告：USE_HTTPS=true 但憑證檔案不存在，將使用 HTTP")
-            print(f"  - Keyfile: {ssl_keyfile}")
-            print(f"  - Certfile: {ssl_certfile}")
-        print("✓ HTTP 模式（開發環境）")
 
     uvicorn.run(**uvicorn_config)
 

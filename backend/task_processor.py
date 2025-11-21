@@ -3,8 +3,6 @@
 將原有的 Whisper 轉錄邏輯改造為異步任務
 """
 import os
-import sys
-
 # ============================================================================
 # 重要：在導入任何第三方庫之前，必須先設置離線模式環境變量！
 # 否則 pyannote、transformers 等庫在導入時就會嘗試連接網路
@@ -21,46 +19,29 @@ os.environ['HF_DATASETS_OFFLINE'] = '1'
 os.environ['DO_NOT_TRACK'] = '1'
 os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
 
-# 移除代理設置，避免嘗試通過代理連接網路
-# 某些環境變量可能已設置代理，在離線模式下需要清除
-for proxy_var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 
-                   'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy']:
-    if proxy_var in os.environ:
-        del os.environ[proxy_var]
 
 # ============================================================================
 # 現在可以安全地導入其他模組
 # ============================================================================
 
-import time
-import asyncio
 import av
-import numpy as np
 from pathlib import Path
-import faulthandler
 
-# 啟用 faulthandler 以捕獲 segmentation fault 等嚴重錯誤
-# 將錯誤信息輸出到 stderr，幫助診斷 C++ 擴展模組的崩潰問題
-faulthandler.enable(file=sys.stderr, all_threads=True)
-
-#https://github.com/tencent-ailab/SongPrep/issues/5#issuecomment-3478738144
 # Add FFmpeg DLL directory for Windows (Python 3.8+)
 ffmpeg_dll_dir = Path(__file__).parent.parent / "ffmpeg-master-latest-win64-gpl-shared" / "bin"
 if ffmpeg_dll_dir.exists():
     os.add_dll_directory(str(ffmpeg_dll_dir))
     os.environ["PATH"] += os.pathsep + str(ffmpeg_dll_dir)
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from pyannote.core import Segment
 import torch
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
+#torch.backends.cuda.matmul.allow_tf32 = True
+#torch.backends.cudnn.allow_tf32 = True
 from opencc import OpenCC
 from faster_whisper import WhisperModel
 from pyannote.audio import Pipeline
 from dotenv import load_dotenv
-
-from pyannote.audio.pipelines.utils.hook import ProgressHook
 
 from memory_storage import memory_manager
 from email_service import email_service
@@ -122,11 +103,6 @@ class TaskProcessor:
     """任務處理器類別"""
 
     def __init__(self):
-        import threading
-
-        # 模型操作鎖 - 防止執行緒競爭
-        self._model_lock = threading.RLock()
-
         self.whisper_model = None
         self.current_model_name = None
         self.diarization_model = None
@@ -141,42 +117,40 @@ class TaskProcessor:
     
     def load_whisper_model(self, model_name: str ,compute_type: str = "default"):
         """載入 Whisper 模型（僅使用本地緩存）"""
-        with self._model_lock:  # 使用鎖保護模型操作
-            if self.whisper_model is not None and self.current_model_name == model_name:
-                # 模型已載入且相同，無需重新載入
-                return
+        if self.whisper_model is not None and self.current_model_name == model_name:
+            # 模型已載入且相同，無需重新載入
+            return
 
-            # 卸載舊模型
-            self.unload_model()
+        # 卸載舊模型
+        self.unload_model()
 
-            # 載入新模型（從本地緩存）
-            print(f"正在載入 Whisper 模型: {model_name} (設備: {self.device}) compute_type: {compute_type}")
+        # 載入新模型（從本地緩存）
+        print(f"正在載入 Whisper 模型: {model_name} (設備: {self.device}) compute_type: {compute_type}")
 
-            self.whisper_model = WhisperModel(
-                model_name,
-                device=self.device,
-                compute_type=compute_type,
-                local_files_only=True  # 僅使用本地緩存，避免網路請求
-            )
-            self.current_model_name = model_name
-            print(f"Whisper 模型載入完成: {model_name}")
+        self.whisper_model = WhisperModel(
+            model_name,
+            device=self.device,
+            compute_type=compute_type,
+            local_files_only=True  # 僅使用本地緩存，避免網路請求
+        )
+        self.current_model_name = model_name
+        print(f"Whisper 模型載入完成: {model_name}")
 
     def load_diarization_model(self):
         """載入語者分離模型"""
-        with self._model_lock:  # 使用鎖保護模型操作
-            if self.diarization_loaded:
-                return
+        if self.diarization_loaded:
+            return
 
-            print("正在載入語者分離模型（從本地緩存）...")
-            diarization_model_id = "pyannote/speaker-diarization-community-1"
-            hf_token = os.getenv("HUGGINGFACE_TOKEN")
-            self.diarization_model = Pipeline.from_pretrained(
-                diarization_model_id,
-                token=hf_token
-            )
-            self.diarization_model.to(torch.device(self.device))
-            print("語者分離模型載入完成")
-            self.diarization_loaded = True
+        print("正在載入語者分離模型（從本地緩存）...")
+        diarization_model_id = "pyannote/speaker-diarization-community-1"
+        hf_token = os.getenv("HUGGINGFACE_TOKEN")
+        self.diarization_model = Pipeline.from_pretrained(
+            diarization_model_id,
+            token=hf_token
+        )
+        self.diarization_model.to(torch.device(self.device))
+        print("語者分離模型載入完成")
+        self.diarization_loaded = True
 
     def unload_model(self):
         """
@@ -189,83 +163,81 @@ class TaskProcessor:
         import gc
         import sys
 
-        with self._model_lock:  # 使用鎖保護模型操作，防止執行緒競爭
-            print("正在卸載模型並釋放 VRAM...")
+        print("正在卸載模型並釋放 VRAM...")
 
-            if torch.cuda.is_available():
-                try:
-                    torch.cuda.synchronize()
-                    memory_before = torch.cuda.memory_allocated() / 1024**3
-                    print(f"  - 清理前 GPU 記憶體: {memory_before:.2f} GB")
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.synchronize()
+                memory_before = torch.cuda.memory_allocated() / 1024**3
+                print(f"  - 清理前 GPU 記憶體: {memory_before:.2f} GB")
 
-                    # 1. 刪除 Whisper 模型（faster-whisper 使用 CTranslate2，直接刪除）
-                    if self.whisper_model is not None:
-                        try:
-                            del self.whisper_model
-                            self.whisper_model = None
-                            self.current_model_name = None
-                            print("  - Whisper 模型已刪除")
-                        except Exception as e:
-                            print(f"  - 刪除 Whisper 模型時發生錯誤: {e}")
-                            # 即使失敗也要設為 None，避免後續訪問
-                            self.whisper_model = None
-                            self.current_model_name = None
-
-                    # 2. 刪除語者分離模型（避免使用 .to() 以防止 C++ 錯誤）
-                    if self.diarization_model is not None:
-                        try:
-                            # 直接刪除，不調用 .to(cpu)
-                            # 在 Windows 多執行緒環境下，.to() 可能觸發 C++ 底層錯誤
-                            del self.diarization_model
-                            self.diarization_model = None
-                            self.diarization_loaded = False
-                            print("  - 語者分離模型已刪除")
-                        except Exception as e:
-                            print(f"  - 刪除語者分離模型時發生錯誤: {e}")
-                            # 即使失敗也要設為 None，避免後續訪問
-                            self.diarization_model = None
-                            self.diarization_loaded = False
-
-                    # 3. 強制垃圾回收（多次調用以確保徹底清理）
-                    gc.collect()
-                    gc.collect()  # 第二次 GC 可能清理第一次遺留的循環引用
-
-                    # 4. 清理 CUDA 緩存
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-
-                    memory_after = torch.cuda.memory_allocated() / 1024**3
-                    print(f"  - 清理後 GPU 記憶體: {memory_after:.2f} GB")
-
-                    saved_gb = memory_before - memory_after
-                    print(f"  - 已釋放 GPU 記憶體: {saved_gb:.2f} GB")
-                except Exception as e:
-                    print(f"  - 清理 GPU 時發生錯誤: {e}")
-                    import traceback
-                    traceback.print_exc()
-            else:
-                # CPU 模式也要清理
+                # 1. 刪除 Whisper 模型（faster-whisper 使用 CTranslate2，直接刪除）
                 if self.whisper_model is not None:
                     try:
                         del self.whisper_model
-                    except Exception as e:  # nosec B110 - 模型刪除失敗不影響流程,記錄後繼續
+                        self.whisper_model = None
+                        self.current_model_name = None
+                        print("  - Whisper 模型已刪除")
+                    except Exception as e:
                         print(f"  - 刪除 Whisper 模型時發生錯誤: {e}")
-                    self.whisper_model = None
-                    self.current_model_name = None
+                        # 即使失敗也要設為 None，避免後續訪問
+                        self.whisper_model = None
+                        self.current_model_name = None
 
+                # 2. 刪除語者分離模型（避免使用 .to() 以防止 C++ 錯誤）
                 if self.diarization_model is not None:
                     try:
+                        self.diarization_model.to(torch.device("cpu"))
                         del self.diarization_model
-                    except Exception as e:  # nosec B110 - 模型刪除失敗不影響流程,記錄後繼續
+                        self.diarization_model = None
+                        self.diarization_loaded = False
+                        print("  - 語者分離模型已刪除")
+                    except Exception as e:
                         print(f"  - 刪除語者分離模型時發生錯誤: {e}")
-                    self.diarization_model = None
-                    self.diarization_loaded = False
+                        # 即使失敗也要設為 None，避免後續訪問
+                        self.diarization_model = None
+                        self.diarization_loaded = False
 
+                # 3. 強制垃圾回收（多次調用以確保徹底清理）
                 gc.collect()
-                gc.collect()
+                gc.collect()  # 第二次 GC 可能清理第一次遺留的循環引用
 
-            print("✓ 模型已卸載，VRAM 已釋放")
-            sys.stdout.flush()
+                # 4. 清理 CUDA 緩存
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+
+                memory_after = torch.cuda.memory_allocated() / 1024**3
+                print(f"  - 清理後 GPU 記憶體: {memory_after:.2f} GB")
+
+                saved_gb = memory_before - memory_after
+                print(f"  - 已釋放 GPU 記憶體: {saved_gb:.2f} GB")
+            except Exception as e:
+                print(f"  - 清理 GPU 時發生錯誤: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            # CPU 模式也要清理
+            if self.whisper_model is not None:
+                try:
+                    del self.whisper_model
+                except Exception as e:  # nosec B110 - 模型刪除失敗不影響流程,記錄後繼續
+                    print(f"  - 刪除 Whisper 模型時發生錯誤: {e}")
+                self.whisper_model = None
+                self.current_model_name = None
+
+            if self.diarization_model is not None:
+                try:
+                    del self.diarization_model
+                except Exception as e:  # nosec B110 - 模型刪除失敗不影響流程,記錄後繼續
+                    print(f"  - 刪除語者分離模型時發生錯誤: {e}")
+                self.diarization_model = None
+                self.diarization_loaded = False
+
+            gc.collect()
+            gc.collect()
+
+        print("✓ 模型已卸載，VRAM 已釋放")
+        sys.stdout.flush()
     
     def unload_diarization_model(self):
         """
@@ -274,58 +246,56 @@ class TaskProcessor:
         """
         import gc
         
-        with self._model_lock:  # 使用鎖保護模型操作，防止執行緒競爭
-            if not self.diarization_loaded:
-                return
+        if not self.diarization_loaded:
+            return
 
-            print("正在卸載語者分離模型以釋放 VRAM...")
-            
-            if torch.cuda.is_available():
-                try:
-                    torch.cuda.synchronize()
-                    memory_before = torch.cuda.memory_allocated() / 1024**3
-                    print(f"  - 清理前 GPU 記憶體: {memory_before:.2f} GB")
-                    
-                    # 直接刪除模型，不調用 .to(cpu)
-                    # 在 Windows 多執行緒環境下，.to() 可能觸發 C++ 底層錯誤
-                    if self.diarization_model is not None:
-                        try:
-                            del self.diarization_model
-                            self.diarization_model = None
-                            print("  - 語者分離模型已刪除")
-                        except Exception as e:
-                            print(f"  - 刪除語者分離模型時發生錯誤: {e}")
-                            # 即使失敗也要設為 None，避免後續訪問
-                            self.diarization_model = None
-                    
-                    # 強制垃圾回收（多次調用）
-                    gc.collect()
-                    gc.collect()
-                    
-                    # 清理 CUDA 緩存
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-                    
-                    memory_after = torch.cuda.memory_allocated() / 1024**3
-                    print(f"  - 清理後 GPU 記憶體: {memory_after:.2f} GB")
-                    print(f"  - 已釋放 GPU 記憶體: {memory_before - memory_after:.2f} GB")
-                except Exception as e:
-                    print(f"  - 清理時發生錯誤: {e}")
-                    import traceback
-                    traceback.print_exc()
-            else:
-                # CPU 模式
+        print("正在卸載語者分離模型以釋放 VRAM...")
+        
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.synchronize()
+                memory_before = torch.cuda.memory_allocated() / 1024**3
+                print(f"  - 清理前 GPU 記憶體: {memory_before:.2f} GB")
+                
                 if self.diarization_model is not None:
                     try:
+                        self.diarization_model.to(torch.device("cpu"))
                         del self.diarization_model
-                    except Exception as e:  # nosec B110 - 模型刪除失敗不影響流程,記錄後繼續
+                        self.diarization_model = None
+                        print("  - 語者分離模型已刪除")
+                    except Exception as e:
                         print(f"  - 刪除語者分離模型時發生錯誤: {e}")
-                    self.diarization_model = None
+                        # 即使失敗也要設為 None，避免後續訪問
+                        self.diarization_model = None
+                
+                # 強制垃圾回收（多次調用）
                 gc.collect()
                 gc.collect()
+                
+                # 清理 CUDA 緩存
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                
+                memory_after = torch.cuda.memory_allocated() / 1024**3
+                print(f"  - 清理後 GPU 記憶體: {memory_after:.2f} GB")
+                print(f"  - 已釋放 GPU 記憶體: {memory_before - memory_after:.2f} GB")
+            except Exception as e:
+                print(f"  - 清理時發生錯誤: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            # CPU 模式
+            if self.diarization_model is not None:
+                try:
+                    del self.diarization_model
+                except Exception as e:  # nosec B110 - 模型刪除失敗不影響流程,記錄後繼續
+                    print(f"  - 刪除語者分離模型時發生錯誤: {e}")
+                self.diarization_model = None
+            gc.collect()
+            gc.collect()
 
-            self.diarization_loaded = False
-            print("✓ 語者分離模型已卸載")
+        self.diarization_loaded = False
+        print("✓ 語者分離模型已卸載")
     
     def check_cancelled(self, task_id: str) -> bool:
         """檢查任務是否被取消"""
@@ -870,52 +840,50 @@ class TaskProcessor:
             word_timestamps = enable_confidence_score == 1
 
             # 嘗試轉錄，如果失敗則自動降級到更兼容的計算類型
-            # 使用鎖保護模型推理過程，防止其他執行緒在推理時卸載模型
-            with self._model_lock:
-                try:
+            try:
+                segments, info = self.whisper_model.transcribe(
+                    audio=str(converted_audio_path),
+                    language=language,
+                    task=task,
+                    beam_size=beam_size,  # 減少 beam size 以降低記憶體使用
+                    vad_filter=True,  # 啟用 VAD 過濾靜音片段
+                    vad_parameters=vad_parameters,  # 使用進階 VAD 參數
+                    word_timestamps=word_timestamps,  # True 即可啟用詞級時間戳
+                    log_progress=True,
+                    temperature=0.0 #CT2的 del BUG加上溫度參數可解決
+                )
+            except Exception as e:
+                error_msg = str(e)
+                # 檢查是否為 cuBLAS 不支持的錯誤（int8 在某些 GPU 上不支持）
+                if "cuBLAS" in error_msg or "CUBLAS_STATUS_NOT_SUPPORTED" in error_msg:
+                    print(f"⚠️ {compute_type} 計算類型不支持，自動切換到 float16...")
+
+                    # 重新載入模型並使用 float16（已在鎖內，load_whisper_model 也會獲取同一個鎖）
+                    fallback_compute_type = "float16"
+                    fallback_beam_size = 5
+                    self.load_whisper_model(model, fallback_compute_type)
+
+                    memory_manager.update_task_status(
+                        task_id,
+                        'processing',
+                        progress=30.0,
+                        current_stage=f'使用語音辨識 (已切換到 {fallback_compute_type})'
+                    )
+
+                    # 重試轉錄（仍在鎖內）
                     segments, info = self.whisper_model.transcribe(
                         audio=str(converted_audio_path),
                         language=language,
                         task=task,
-                        beam_size=beam_size,  # 減少 beam size 以降低記憶體使用
-                        vad_filter=True,  # 啟用 VAD 過濾靜音片段
-                        vad_parameters=vad_parameters,  # 使用進階 VAD 參數
-                        word_timestamps=word_timestamps,  # True 即可啟用詞級時間戳
+                        beam_size=fallback_beam_size,
+                        vad_filter=True,
+                        vad_parameters=vad_parameters,
+                        word_timestamps=word_timestamps,
                         log_progress=True,
-                        temperature=0.0 #CT2的 del BUG加上溫度參數可解決
                     )
-                except Exception as e:
-                    error_msg = str(e)
-                    # 檢查是否為 cuBLAS 不支持的錯誤（int8 在某些 GPU 上不支持）
-                    if "cuBLAS" in error_msg or "CUBLAS_STATUS_NOT_SUPPORTED" in error_msg:
-                        print(f"⚠️ {compute_type} 計算類型不支持，自動切換到 float16...")
-
-                        # 重新載入模型並使用 float16（已在鎖內，load_whisper_model 也會獲取同一個鎖）
-                        fallback_compute_type = "float16"
-                        fallback_beam_size = 5
-                        self.load_whisper_model(model, fallback_compute_type)
-
-                        memory_manager.update_task_status(
-                            task_id,
-                            'processing',
-                            progress=30.0,
-                            current_stage=f'使用語音辨識 (已切換到 {fallback_compute_type})'
-                        )
-
-                        # 重試轉錄（仍在鎖內）
-                        segments, info = self.whisper_model.transcribe(
-                            audio=str(converted_audio_path),
-                            language=language,
-                            task=task,
-                            beam_size=fallback_beam_size,
-                            vad_filter=True,
-                            vad_parameters=vad_parameters,
-                            word_timestamps=word_timestamps,
-                            log_progress=True,
-                        )
-                    else:
-                        # 其他錯誤直接拋出
-                        raise
+                else:
+                    # 其他錯誤直接拋出
+                    raise
 
             # 獲取音訊總時長用於進度計算
             audio_duration = info.duration if hasattr(info, 'duration') else None
@@ -1067,15 +1035,13 @@ class TaskProcessor:
                     if max_speakers is not None:
                         diarization_params['max_speakers'] = max_speakers
 
-                    # 使用鎖保護語者分離模型推理過程，防止其他執行緒在推理時卸載模型
-                    with self._model_lock:
-                        with CustomProgressHook(task_id, start_progress=70.0, end_progress=85.0) as hook:
-                            diarization_output = self.diarization_model(
-                                str(converted_audio_path),
-                                hook=hook,
-                                **diarization_params
-                            )
-                        diarization_result = diarization_output.speaker_diarization
+                    with CustomProgressHook(task_id, start_progress=70.0, end_progress=85.0) as hook:
+                        diarization_output = self.diarization_model(
+                            str(converted_audio_path),
+                            hook=hook,
+                            **diarization_params
+                        )
+                    diarization_result = diarization_output.speaker_diarization
 
                     memory_manager.update_task_status(
                         task_id,

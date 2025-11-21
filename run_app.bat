@@ -1,4 +1,4 @@
 @echo off
 call .venv\Scripts\activate
-cd remote_server
+cd backend
 python api.py
