@@ -12,9 +12,8 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Query, Depends
-from fastapi.responses import FileResponse, StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import StreamingResponse
+
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -64,25 +63,6 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS 中介軟體（更安全的配置）
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,  # 改為白名單
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE"],  # 限制允許的方法
-    allow_headers=["Content-Type", "Authorization"],  # 限制允許的標頭
-    max_age=3600,  # 預檢請求緩存時間
-)
-
-# 信任主機中介軟體（防止 Host Header 攻擊）
-trusted_hosts = os.getenv("TRUSTED_HOSTS", "localhost,127.0.0.1").split(",")
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=trusted_hosts
-)
-
-
 # 安全標頭中介軟體
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
@@ -94,7 +74,6 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"  # 防止點擊劫持
     response.headers["X-XSS-Protection"] = "1; mode=block"  # XSS 保護
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"  # HSTS
-    response.headers["Content-Security-Policy"] = "default-src 'self'"  # CSP
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"  # Referrer 策略
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"  # 權限策略
 
@@ -202,8 +181,8 @@ async def process_queue():
                 vad_offset=task.get('vad_offset', 0.363),
                 min_speakers=task.get('min_speakers'),
                 max_speakers=task.get('max_speakers'),
-                enable_confidence_score=task.get('enable_confidence_score', False),
-                compute_type=task.get('compute_type', None)
+                enable_confidence_score=task.get('enable_confidence_score', True),
+                compute_type=task.get('compute_type', 'float16')
             )
 
         except Exception as e:
@@ -311,32 +290,51 @@ async def create_task(
     vad_offset: float = Query(0.363, ge=0, le=1, description="VAD 語音結束閾值 (0-1)"),
     min_speakers: Optional[int] = Query(None, ge=1, description="最小語者數"),
     max_speakers: Optional[int] = Query(None, ge=1, description="最大語者數"),
-    enable_confidence_score: bool = Query(False, description="是否啟用信心分數輸出"),
-    compute_type: Optional[str] = Query(None, description="計算類型 (float32, int8, float16)"),
+    enable_confidence_score: bool = Query(True, description="是否啟用信心分數輸出"),
+    compute_type: Optional[str] = Query('float16', description="計算類型 (float32, int8, float16)"),
     # LLM 校對參數
     enable_llm_correction: bool = Query(False, description="是否啟用 LLM 文本校對"),
-    llm_model: Optional[str] = Query(None, description="LLM 模型 (gemma3:4b, qwen3:4b, gpt-oss:20b)")
+    llm_model: Optional[str] = Query(None, description="LLM 模型 (gemma3:4b, qwen3:4b, gpt-oss:20b)"),
+    # 管理員 Token（可選）
+    admin_token: Optional[str] = Query(None, description="管理員 Token（提供此 Token 可跳過郵箱驗證）")
 ):
     """
     提交新的語音轉文字任務
 
-    - **email**: 已驗證的電子郵件地址（必須先完成驗證）
+    - **email**: 已驗證的電子郵件地址（必須先完成驗證，或提供管理員 Token）
     - **file**: 音訊檔案
     - **enable_diarization**: 是否啟用語者分離功能
     - **start_time**: 音訊開始時間（秒），可選
     - **end_time**: 音訊結束時間（秒），可選
     - **language**: 語言代碼（如 zh, en, ja），留空則自動偵測
     - **task**: transcribe（轉錄）或 translate（翻譯成英文）
+    - **admin_token**: 管理員 Token（提供此 Token 可跳過郵箱驗證）
 
     返回任務ID，處理完成後會將結果發送至您的郵箱
     """
-    # 檢查是否為白名單 email（可跳過驗證）
-    if not is_whitelisted_email(email):
+    # 檢查是否提供有效的管理員 Token
+    has_admin_token = False
+    if admin_token:
+        expected_admin_token = os.getenv("ADMIN_TOKEN", "admin_secret_token_2024")
+        if admin_token == expected_admin_token:
+            has_admin_token = True
+            # 記錄管理員使用 Token 創建任務
+            ip_address = get_client_ip(request)
+            security_logger.log_admin_action(
+                admin_token=admin_token,
+                ip_address=ip_address,
+                action="create_task_with_admin_token",
+                target=f"email={email}",
+                details={"filename": file.filename if file.filename else "unknown"}
+            )
+    
+    # 檢查是否需要郵箱驗證（管理員 Token 或白名單可跳過）
+    if not has_admin_token and not is_whitelisted_email(email):
         # 驗證郵箱是否已驗證
         if not email_service.is_email_verified(email):
             raise HTTPException(
                 status_code=403,
-                detail="郵箱未驗證，請先使用 /api/email/send-verification 發送驗證碼"
+                detail="郵箱未驗證。"
             )
 
     # 驗證任務類型
