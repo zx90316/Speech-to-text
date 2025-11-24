@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Ollama LLM 校對服務模組
 使用 Ollama API 對轉錄文本進行校對和改正

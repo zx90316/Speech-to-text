@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 FastAPI 應用主檔案
 提供完整的語音轉文字 API 服務
@@ -48,7 +49,8 @@ async def lifespan(app: FastAPI):
 
 
 # 創建速率限制器
-limiter = Limiter(key_func=get_remote_address)
+# 注意：明確指定 config_filename 為不存在的檔案，以避免 slowapi 嘗試讀取包含中文的 .env 檔案導致編碼錯誤
+limiter = Limiter(key_func=get_remote_address, config_filename="slowapi_config")
 
 # 創建 FastAPI 應用
 app = FastAPI(
@@ -1018,7 +1020,7 @@ if __name__ == "__main__":
         "app": "api:app",
         "host": os.getenv("API_HOST", "127.0.0.1"),
         "port": int(os.getenv("API_PORT", "8100")),
-        "reload": True,
+        "reload": False,
         "log_level": "info",
         "workers": int(os.getenv("UVICORN_WORKERS", "1"))
     }

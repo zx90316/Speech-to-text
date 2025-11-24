@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 任務處理器模組
 將原有的 Whisper 轉錄邏輯改造為異步任務
@@ -7,7 +8,7 @@ import os
 # 重要：在導入任何第三方庫之前，必須先設置離線模式環境變量！
 # 否則 pyannote、transformers 等庫在導入時就會嘗試連接網路
 # ============================================================================
-
+"""
 # 強制 Hugging Face Hub 使用離線模式（僅使用本地緩存）
 # 這是為了符合服務器限制對外聯網的安全要求
 # 所有模型應該預先下載到 ~/.cache/huggingface/ 中
@@ -18,7 +19,7 @@ os.environ['HF_DATASETS_OFFLINE'] = '1'
 # 禁用 telemetry 和自動更新檢查
 os.environ['DO_NOT_TRACK'] = '1'
 os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
-
+"""
 
 # ============================================================================
 # 現在可以安全地導入其他模組
@@ -131,7 +132,7 @@ class TaskProcessor:
             model_name,
             device=self.device,
             compute_type=compute_type,
-            local_files_only=True  # 僅使用本地緩存，避免網路請求
+            local_files_only=False  # 僅使用本地緩存，避免網路請求
         )
         self.current_model_name = model_name
         print(f"Whisper 模型載入完成: {model_name}")
@@ -1034,10 +1035,12 @@ class TaskProcessor:
                         diarization_params['min_speakers'] = min_speakers
                     if max_speakers is not None:
                         diarization_params['max_speakers'] = max_speakers
-
+                    import torchaudio
+                    waveform, sr = torchaudio.load(converted_audio_path)
+                    
                     with CustomProgressHook(task_id, start_progress=70.0, end_progress=85.0) as hook:
                         diarization_output = self.diarization_model(
-                            str(converted_audio_path),
+                            {"waveform": waveform, "sample_rate": sr},
                             hook=hook,
                             **diarization_params
                         )
