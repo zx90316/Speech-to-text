@@ -5,11 +5,14 @@ import axios from 'axios';
 import type { Task, TaskCreateResponse, TaskHistory, ServiceStats } from './types';
 import { clearVerifiedEmail } from './utils/emailStorage';
 
-const API_BASE_URL = '/api';
+// API 基礎 URL
+// 生產環境：設定 VITE_API_URL 環境變數指向後端（例如 http://192.168.1.100:8100/api）
+// 開發環境：使用相對路徑 /api，透過 Vite proxy 轉發
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 // 添加 axios 響應攔截器，處理 403 錯誤
 let hasShown403Alert = false; // 防止重複彈窗
-let alertTimeout: NodeJS.Timeout | null = null;
+let alertTimeout: ReturnType<typeof setTimeout> | null = null;
 
 axios.interceptors.response.use(
   (response) => response,
@@ -175,9 +178,14 @@ export const api = {
 
   /**
    * 建立 SSE 連接以接收進度更新
+   * 注意：SSE 需要完整 URL，當使用遠端後端時需要特別處理
    */
   createProgressStream(taskId: string): EventSource {
-    return new EventSource(`${API_BASE_URL}/tasks/${taskId}/stream`);
+    // 如果 API_BASE_URL 是相對路徑，使用當前 origin；否則直接使用設定的 URL
+    const baseUrl = API_BASE_URL.startsWith('http') 
+      ? API_BASE_URL 
+      : `${window.location.origin}${API_BASE_URL}`;
+    return new EventSource(`${baseUrl}/tasks/${taskId}/stream`);
   }
 };
 

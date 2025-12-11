@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Query, Depends
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -61,9 +62,33 @@ app = FastAPI(
     redoc_url="/redoc" if os.getenv("ENABLE_DOCS", "true").lower() == "true" else None
 )
 
+# CORS 設定 - 支援遠端前端訪問
+# 從環境變數讀取允許的來源，多個來源用逗號分隔
+# 例如: CORS_ORIGINS=http://192.168.1.100:5173,http://frontend.example.com
+cors_origins_str = os.getenv("CORS_ORIGINS", "*")
+if cors_origins_str == "*":
+    # 允許所有來源（開發環境）
+    cors_origins = ["*"]
+else:
+    # 解析指定的來源列表
+    cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,  # 允許的來源
+    allow_credentials=True,  # 允許攜帶憑證（cookies）
+    allow_methods=["*"],  # 允許所有 HTTP 方法
+    allow_headers=["*"],  # 允許所有標頭
+    expose_headers=["*"],  # 暴露所有回應標頭給前端
+)
+
 # 註冊速率限制異常處理
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# 是否為內部系統（不強制 HTTPS）
+# 內部系統設定 INTERNAL_SYSTEM=true 可跳過 HSTS 等 HTTPS 相關安全標頭
+IS_INTERNAL_SYSTEM = os.getenv("INTERNAL_SYSTEM", "true").lower() == "true"
 
 # 安全標頭中介軟體
 @app.middleware("http")
@@ -71,13 +96,16 @@ async def add_security_headers(request: Request, call_next):
     """添加安全響應標頭"""
     response = await call_next(request)
 
-    # 安全標頭（符合 SSDLC 要求）
+    # 基本安全標頭（HTTP/HTTPS 皆適用）
     response.headers["X-Content-Type-Options"] = "nosniff"  # 防止 MIME 類型嗅探
     response.headers["X-Frame-Options"] = "DENY"  # 防止點擊劫持
     response.headers["X-XSS-Protection"] = "1; mode=block"  # XSS 保護
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"  # HSTS
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"  # Referrer 策略
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"  # 權限策略
+
+    # HTTPS 相關安全標頭（僅外部系統啟用）
+    if not IS_INTERNAL_SYSTEM:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"  # HSTS
 
     # 移除可能洩露服務器信息的標頭
     if "Server" in response.headers:
@@ -1016,7 +1044,7 @@ async def admin_cleanup_old_tasks(
 if __name__ == "__main__":
     uvicorn_config = {
         "app": "api:app",
-        "host": os.getenv("API_HOST", "127.0.0.1"),
+        "host": os.getenv("API_HOST", "0.0.0.0"),  # 預設監聽所有介面，支援遠端連線
         "port": int(os.getenv("API_PORT", "8100")),
         "reload": False,
         "log_level": "info",
