@@ -12,6 +12,10 @@ from typing import Optional, List
 from datetime import datetime
 from contextlib import asynccontextmanager
 
+# 載入 .env 環境變數（必須在其他模組導入之前）
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Query, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware

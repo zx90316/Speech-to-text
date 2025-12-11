@@ -19,11 +19,11 @@ REM 設定後端 URL（請修改為您的後端 IP）
 REM ================================================
 REM 方式 1：透過 Vite Proxy 轉發（開發環境推薦）
 REM 設定 VITE_BACKEND_URL 讓 Vite 轉發 /api 請求到後端
-set VITE_BACKEND_URL=http://192.168.1.100:8100
+set VITE_BACKEND_URL=http://192.168.80.24:8100
 
 REM 方式 2：直接連接後端（生產環境推薦）
 REM 設定 VITE_API_URL 讓前端直接訪問後端 API
-REM set VITE_API_URL=http://192.168.1.100:8100/api
+REM set VITE_API_URL=http://192.168.80.24:8100/api
 REM ================================================
 
 echo.
