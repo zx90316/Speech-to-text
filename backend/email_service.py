@@ -5,29 +5,29 @@
 """
 import os
 import smtplib
-import secrets
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
-from datetime import datetime, timedelta
-from typing import Optional, Dict
+from typing import Optional
 import threading
+
+from storage import email_verification
 
 
 class EmailService:
     """郵件服務類別"""
-
+    
     _instance = None
     _lock = threading.Lock()
-
+    
     def __new__(cls):
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
         return cls._instance
-
+    
     def __init__(self):
         if not hasattr(self, 'initialized'):
             # SMTP 設定（從環境變數讀取）
@@ -36,151 +36,107 @@ class EmailService:
             self.smtp_username = os.getenv('SMTP_USERNAME', '')
             self.smtp_password = os.getenv('SMTP_PASSWORD', '')
             self.from_email = os.getenv('FROM_EMAIL', self.smtp_username)
-
-            # 驗證碼存儲（記憶體中）
-            self.verification_codes: Dict[str, dict] = {}
             self.initialized = True
-
+    
     def generate_verification_code(self, email: str) -> str:
         """生成 6 位數驗證碼"""
-        code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
-
-        # 存儲驗證碼，5 分鐘有效
-        self.verification_codes[email] = {
-            'code': code,
-            'expires_at': datetime.now() + timedelta(minutes=5),
-            'verified': False
-        }
-
-        return code
-
+        return email_verification.generate_code(email)
+    
     def verify_code(self, email: str, code: str) -> bool:
         """驗證郵件驗證碼"""
-        if email not in self.verification_codes:
-            return False
-
-        stored = self.verification_codes[email]
-
-        # 檢查是否過期
-        if datetime.now() > stored['expires_at']:
-            del self.verification_codes[email]
-            return False
-
-        # 檢查驗證碼是否正確
-        if stored['code'] == code:
-            stored['verified'] = True
-            # 驗證成功後，延長有效期到 24 小時
-            stored['expires_at'] = datetime.now() + timedelta(hours=24)
-            return True
-
-        return False
-
+        return email_verification.verify_code(email, code)
+    
     def is_email_verified(self, email: str) -> bool:
         """檢查郵件是否已驗證"""
-        if email not in self.verification_codes:
-            return False
-
-        stored = self.verification_codes[email]
-
-        # 檢查是否過期
-        if datetime.now() > stored['expires_at']:
-            return False
-
-        return stored.get('verified', False)
-
+        return email_verification.is_verified(email)
+    
     def send_verification_email(self, to_email: str) -> bool:
         """發送驗證郵件"""
         try:
             code = self.generate_verification_code(to_email)
-
+            
             msg = MIMEMultipart()
             msg['From'] = self.from_email
             msg['To'] = to_email
-            msg['Subject'] = 'Whisper 語音轉文字 - 郵件驗證碼'
-
+            msg['Subject'] = 'Qwen ASR 語音轉文字 - 郵件驗證碼'
+            
             body = f"""
             <html>
-            <body>
-                <h2>郵件驗證</h2>
-                <p>您的驗證碼是：<strong style="font-size: 24px; color: #007bff;">{code}</strong></p>
-                <p>此驗證碼將在 5 分鐘後過期。</p>
-                <p>如果您沒有請求此驗證碼，請忽略此郵件。</p>
-                <hr>
-                <p style="color: #666; font-size: 12px;">Whisper 語音轉文字服務</p>
+            <body style="font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px;">
+                <div style="max-width: 500px; margin: 0 auto; background: rgba(255,255,255,0.05); border-radius: 10px; padding: 30px;">
+                    <h2 style="color: #667eea;">🔐 郵件驗證</h2>
+                    <p>您的驗證碼是：</p>
+                    <div style="font-size: 32px; font-weight: bold; color: #764ba2; letter-spacing: 8px; text-align: center; padding: 20px; background: rgba(102,126,234,0.1); border-radius: 8px;">
+                        {code}
+                    </div>
+                    <p style="margin-top: 20px;">此驗證碼將在 <strong>5 分鐘</strong>後過期。</p>
+                    <p style="color: #8892b0; font-size: 12px;">如果您沒有請求此驗證碼，請忽略此郵件。</p>
+                    <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 20px 0;">
+                    <p style="color: #8892b0; font-size: 12px;">Qwen ASR 語音轉文字服務 V2</p>
+                </div>
             </body>
             </html>
             """
-
+            
             msg.attach(MIMEText(body, 'html'))
-
+            
             return self._send_email(msg)
-
+            
         except Exception as e:
-            print(f"發送驗證郵件失敗: {e}")
+            print(f"❌ 發送驗證郵件失敗: {e}")
             return False
-
+    
     def send_completion_email(
         self,
         to_email: str,
         task_id: str,
         filename: str,
         transcript_text: str,
-        corrected_text: Optional[str] = None,
         has_diarization: bool = False,
-        confidence_html_path: Optional[str] = None,
-        llm_comparison_html_path: Optional[str] = None
+        detected_language: Optional[str] = None,
     ) -> bool:
         """發送任務完成通知郵件"""
         try:
             msg = MIMEMultipart()
             msg['From'] = self.from_email
             msg['To'] = to_email
-            msg['Subject'] = f'轉錄完成 - {filename}'
-
+            msg['Subject'] = f'✅ 轉錄完成 - {filename}'
+            
             # 截取前 500 字作為預覽
             preview = transcript_text[:500]
             if len(transcript_text) > 500:
                 preview += "..."
-
-            # 根據是否有信心分數報告和 LLM 校對調整郵件內容
-            confidence_note = ""
-            if confidence_html_path:
-                confidence_note = """
-                <p><strong>📊 信心分數報告：</strong>附件中包含詞級信心分數可視化 HTML 報告，在瀏覽器中打開可查看詳細的轉錄信心度分析。</p>
-                """
-
-            llm_note = ""
-            if corrected_text and llm_comparison_html_path:
-                llm_note = """
-                <p><strong>🤖 LLM 校對報告：</strong>附件中包含 LLM 校對前後對比 HTML 報告，可查看原始轉錄和校正後的文本對比。</p>
-                """
-
+            
             body = f"""
             <html>
-            <body>
-                <h2>語音轉文字任務完成</h2>
-                <p>您的音訊檔案 <strong>{filename}</strong> 已完成轉錄。</p>
-                <p><strong>任務 ID:</strong> {task_id}</p>
-                <p><strong>語者分離:</strong> {'已啟用' if has_diarization else '未啟用'}</p>
-                <p><strong>LLM 校對:</strong> {'已啟用' if corrected_text else '未啟用'}</p>
-                {confidence_note}
-                {llm_note}
-
-                <h3>轉錄結果預覽：</h3>
-                <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; white-space: pre-wrap;">
+            <body style="font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px;">
+                <div style="max-width: 600px; margin: 0 auto; background: rgba(255,255,255,0.05); border-radius: 10px; padding: 30px;">
+                    <h2 style="color: #667eea;">🎉 語音轉文字任務完成</h2>
+                    
+                    <p>您的音訊檔案 <strong style="color: #764ba2;">{filename}</strong> 已完成轉錄。</p>
+                    
+                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 15px; margin: 15px 0;">
+                        <p style="margin: 5px 0;"><strong>任務 ID:</strong> <code style="color: #667eea;">{task_id}</code></p>
+                        <p style="margin: 5px 0;"><strong>偵測語言:</strong> {detected_language or '未知'}</p>
+                        <p style="margin: 5px 0;"><strong>語者分離:</strong> {'✅ 已啟用' if has_diarization else '❌ 未啟用'}</p>
+                    </div>
+                    
+                    <h3 style="color: #667eea;">📝 轉錄結果預覽：</h3>
+                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 15px; white-space: pre-wrap; font-size: 14px; line-height: 1.6;">
 {preview}
+                    </div>
+                    
+                    <p style="margin-top: 20px;">完整的轉錄結果請見附件。</p>
+                    
+                    <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.1); margin: 20px 0;">
+                    <p style="color: #8892b0; font-size: 12px;">Qwen ASR 語音轉文字服務 V2</p>
                 </div>
-
-                <p>完整的轉錄結果請見附件。</p>
-
-                <hr>
-                <p style="color: #666; font-size: 12px;">Whisper 語音轉文字服務</p>
             </body>
             </html>
             """
-
+            
             msg.attach(MIMEText(body, 'html'))
-
+            
             # 附加轉錄文字檔案
             attachment = MIMEBase('text', 'plain')
             attachment.set_payload(transcript_text.encode('utf-8'))
@@ -190,78 +146,29 @@ class EmailService:
                 f'attachment; filename="{task_id}_transcript.txt"'
             )
             msg.attach(attachment)
-
-            # 附加信心分數可視化 HTML（如果有）
-            if confidence_html_path and os.path.exists(confidence_html_path):
-                try:
-                    with open(confidence_html_path, 'r', encoding='utf-8') as f:
-                        html_content = f.read()
-
-                    html_attachment = MIMEBase('text', 'html')
-                    html_attachment.set_payload(html_content.encode('utf-8'))
-                    encoders.encode_base64(html_attachment)
-                    html_attachment.add_header(
-                        'Content-Disposition',
-                        f'attachment; filename="{task_id}_confidence_report.html"'
-                    )
-                    msg.attach(html_attachment)
-                    print(f"✓ 已附加信心分數可視化 HTML: {confidence_html_path}")
-                except Exception as html_error:
-                    print(f"⚠️ 附加 HTML 文件失敗: {html_error}")
-
-            # 附加校正後的文本檔案（如果有 LLM 校對）
-            if corrected_text:
-                try:
-                    corrected_attachment = MIMEBase('text', 'plain')
-                    corrected_attachment.set_payload(corrected_text.encode('utf-8'))
-                    encoders.encode_base64(corrected_attachment)
-                    corrected_attachment.add_header(
-                        'Content-Disposition',
-                        f'attachment; filename="{task_id}_transcript_corrected.txt"'
-                    )
-                    msg.attach(corrected_attachment)
-                    print(f"✓ 已附加校正後文本: transcript_corrected.txt")
-                except Exception as corrected_error:
-                    print(f"⚠️ 附加校正文本失敗: {corrected_error}")
-
-            # 附加 LLM 校對對比 HTML（如果有）
-            if llm_comparison_html_path and os.path.exists(llm_comparison_html_path):
-                try:
-                    with open(llm_comparison_html_path, 'r', encoding='utf-8') as f:
-                        llm_html_content = f.read()
-
-                    llm_html_attachment = MIMEBase('text', 'html')
-                    llm_html_attachment.set_payload(llm_html_content.encode('utf-8'))
-                    encoders.encode_base64(llm_html_attachment)
-                    llm_html_attachment.add_header(
-                        'Content-Disposition',
-                        f'attachment; filename="{task_id}_llm_correction_comparison.html"'
-                    )
-                    msg.attach(llm_html_attachment)
-                    print(f"✓ 已附加 LLM 校對對比 HTML: {llm_comparison_html_path}")
-                except Exception as llm_html_error:
-                    print(f"⚠️ 附加 LLM HTML 文件失敗: {llm_html_error}")
-
+            
             return self._send_email(msg)
-
+            
         except Exception as e:
-            print(f"發送完成通知郵件失敗: {e}")
+            print(f"❌ 發送完成通知郵件失敗: {e}")
             return False
-
+    
     def _send_email(self, msg: MIMEMultipart) -> bool:
         """發送郵件的內部方法"""
         try:
+            if not self.smtp_username or not self.smtp_password:
+                print("⚠️ SMTP 未配置，跳過郵件發送")
+                return False
+            
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                if self.smtp_username and self.smtp_password:
-                    server.starttls()
-                    server.login(self.smtp_username, self.smtp_password)
-
+                server.starttls()
+                server.login(self.smtp_username, self.smtp_password)
                 server.send_message(msg)
-                print(f"郵件已成功發送至 {msg['To']}")
+                print(f"✅ 郵件已成功發送至 {msg['To']}")
             return True
-
+            
         except Exception as e:
-            print(f"發送郵件失敗: {e}")
+            print(f"❌ 發送郵件失敗: {e}")
             return False
 
 

@@ -88,7 +88,11 @@ export const api = {
     enableConfidenceScore?: boolean,
     computeType?: string,
     enableLlmCorrection?: boolean,
-    llmModel?: string
+    llmModel?: string,
+    // QWEN ASR 參數
+    asrEngine?: string,
+    qwenModel?: string,
+    enableQwenTimestamps?: boolean,
   ): Promise<TaskCreateResponse> {
     const formData = new FormData();
     formData.append('file', file);
@@ -110,6 +114,10 @@ export const api = {
     if (computeType !== undefined) params.compute_type = computeType;
     if (enableLlmCorrection !== undefined) params.enable_llm_correction = enableLlmCorrection;
     if (llmModel) params.llm_model = llmModel;
+    // QWEN ASR 參數
+    if (asrEngine) params.asr_engine = asrEngine;
+    if (qwenModel) params.qwen_model = qwenModel;
+    if (enableQwenTimestamps !== undefined) params.enable_qwen_timestamps = enableQwenTimestamps;
 
     const response = await axios.post<TaskCreateResponse>(
       `${API_BASE_URL}/tasks`,
@@ -182,8 +190,8 @@ export const api = {
    */
   createProgressStream(taskId: string): EventSource {
     // 如果 API_BASE_URL 是相對路徑，使用當前 origin；否則直接使用設定的 URL
-    const baseUrl = API_BASE_URL.startsWith('http') 
-      ? API_BASE_URL 
+    const baseUrl = API_BASE_URL.startsWith('http')
+      ? API_BASE_URL
       : `${window.location.origin}${API_BASE_URL}`;
     return new EventSource(`${baseUrl}/tasks/${taskId}/stream`);
   }
